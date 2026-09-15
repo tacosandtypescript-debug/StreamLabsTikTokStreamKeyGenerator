@@ -1,5 +1,10 @@
 # Generador de clave de directo de TikTok para OBS (vía Streamlabs)
 
+[![Pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml/badge.svg)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml)
+[![Compilación y publicación](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml/badge.svg)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml)
+[![Última versión](https://img.shields.io/github/v/release/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator?label=descarga)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)
+[![Licencia](https://img.shields.io/badge/licencia-GPL--3.0-blue)](LICENSE.txt)
+
 Aplicación de escritorio (PySide6) que **prepara una sesión RTMP de TikTok Live
 a través de Streamlabs y te da la URL del servidor y la clave de retransmisión**
 para pegarlas en OBS Studio o en cualquier otro programa de emisión.
@@ -7,6 +12,19 @@ para pegarlas en OBS Studio o en cualquier otro programa de emisión.
 > **Importante:** la aplicación **no emite vídeo** ni configura OBS por ti. Lo
 > que hace es pedirle a Streamlabs que prepare la sesión; la emisión empieza
 > cuando OBS se conecta con esos datos.
+
+## ⬇️ Instalación fácil
+
+| | |
+|---|---|
+| **[Descargar la última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema + `SHA256SUMS.txt` |
+| [Todas las versiones](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Historial completo |
+| [Compilaciones automáticas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Ver el estado y descargar artefactos de una compilación concreta |
+| [Estado de las pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml) | Ubuntu, Windows y macOS |
+
+Los binarios se compilan **automáticamente** en GitHub Actions: no hay que
+compilar nada a mano. Sigue leyendo para elegir tu archivo y verificar que la
+descarga es íntegra.
 
 Este repositorio es una versión endurecida (y traducida) del proyecto original
 de [Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator).
@@ -50,7 +68,10 @@ Ver [Atribución y licencia](#atribución-y-licencia).
 
 ### Opción A — Usar la versión compilada (recomendado)
 
-1. Entra en la pestaña **[Releases](../../releases/latest)** de este repositorio.
+⬇️ **<https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest>**
+
+1. Entra en ese enlace (o en la pestaña **[Releases](../../releases/latest)** del
+   repositorio).
 2. Descarga el archivo que corresponda a tu sistema:
    - `...-win-<versión>.zip` → **Windows**
    - `...-arm64-macos-<versión>.zip` → **macOS con Apple Silicon** (M1/M2/M3…)
@@ -327,16 +348,25 @@ desarrollo nunca avisan de actualizaciones.
 Basta con empujar una etiqueta con formato `vMAYOR.MENOR.PARCHE`:
 
 ```bash
-git tag v2.0.10
-git push origin v2.0.10
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
 Eso ejecuta las pruebas, compila **Windows, macOS (x86_64 y arm64) y Linux**,
 genera `SHA256SUMS.txt` y publica la release con notas generadas
 automáticamente.
 
-Si prefieres escribir tú el changelog, lanza el flujo **Release** a mano desde la
-pestaña *Actions* indicando versión y texto.
+**Enlaces útiles durante la publicación:**
+
+| | |
+|---|---|
+| [Ver la compilación en marcha](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de cada sistema en tiempo real |
+| [Lanzarla a mano](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) → *Run workflow* | Para escribir tú el changelog |
+| [Descargar artefactos de una compilación](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) → abre un *run* → sección **Artifacts** | Sirve para probar una compilación antes de publicarla |
+| [Versiones publicadas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Borrar o editar una release |
+
+Si una compilación falla, no hace falta crear otro tag: abre el *run* y usa
+**Re-run failed jobs** (o **Re-run all jobs**).
 
 ---
 
