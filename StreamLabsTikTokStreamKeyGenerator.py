@@ -210,7 +210,9 @@ class StreamApp(QMainWindow):
 
         self.refresh_btn = QPushButton("Actualizar datos de la cuenta")
         self.refresh_btn.setFixedHeight(30)
-        self.refresh_btn.setToolTip("Vuelve a consultar el usuario, el estado y el permiso de emisión")
+        self.refresh_btn.setToolTip(
+            "Vuelve a consultar el usuario, el estado y el permiso de emisión"
+        )
         self.refresh_btn.clicked.connect(lambda _checked=False: self.refresh_account_info())
         token_layout.addWidget(self.refresh_btn)
         token_layout.addStretch()
