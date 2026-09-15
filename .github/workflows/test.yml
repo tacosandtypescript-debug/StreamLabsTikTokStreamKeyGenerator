@@ -47,6 +47,27 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      # The installers are run straight from a URL, so a typo would reach users
+      # before anything else could catch it. Check their syntax here.
+      - name: Check install.sh syntax
+        if: runner.os == 'Linux'
+        run: bash -n install.sh
+
+      - name: Check install.ps1 syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object {
+              Write-Host "::error::linea $($_.Extent.StartLineNumber): $($_.Message)"
+            }
+            exit 1
+          }
+          Write-Host "install.ps1: sintaxis correcta"
+
       - name: Run tests
         run: pytest
 

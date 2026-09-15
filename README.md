@@ -15,6 +15,34 @@ para pegarlas en OBS Studio o en cualquier otro programa de emisión.
 
 ## ⬇️ Instalación fácil
 
+### En un solo comando (recomendado)
+
+**Windows** — abre PowerShell y pega esto:
+
+```powershell
+irm https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.ps1 | iex
+```
+
+**macOS y Linux** — abre una terminal y pega esto:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.sh | bash
+```
+
+Los dos hacen exactamente lo mismo:
+
+1. Buscan la **última versión** publicada (o la que les indiques: `install.sh 2.1.2`).
+2. Eligen el paquete de tu sistema y arquitectura.
+3. Lo descargan y **verifican su checksum**; si no coincide, no instalan nada.
+4. Lo instalan en tu carpeta de usuario y crean el acceso directo.
+5. **No piden permisos de administrador.**
+
+Al terminar te dicen la ruta instalada; para **desinstalar**, borra esa carpeta
+(y el acceso directo). Los scripts son legibles: [`install.ps1`](install.ps1) e
+[`install.sh`](install.sh).
+
+### Descarga manual
+
 | | |
 |---|---|
 | **[Descargar la última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema + `SHA256SUMS.txt` |
@@ -331,6 +359,14 @@ No. Puedes solicitarlo con menos seguidores.
 
 Requiere **Python 3.11 o superior** (el CI prueba con 3.12 y compila con 3.13).
 
+Todas las dependencias en un solo comando, sin clonar nada:
+
+```bash
+python -m pip install -r https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/requirements.txt
+```
+
+Y si prefieres el flujo completo con el código:
+
 ```bash
 git clone https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator.git
 cd StreamLabsTikTokStreamKeyGenerator
@@ -345,6 +381,12 @@ python -m pip install -r requirements-dev.txt
 ruff check .
 pytest
 ```
+
+> En Windows, si `python` te abre la Microsoft Store en vez de ejecutarse, es que
+> solo tienes el alias y no un Python real: instálalo desde
+> [python.org](https://www.python.org/downloads/windows/) marcando *Add python.exe
+> to PATH*, o desactiva el alias en *Configuración → Aplicaciones → Configuración
+> avanzada de aplicaciones → Alias de ejecución de aplicaciones*.
 
 El código fuente **no necesita** el archivo `_version.py` (lo genera el proceso
 de compilación); sin él usa una versión de desarrollo, y las versiones de
