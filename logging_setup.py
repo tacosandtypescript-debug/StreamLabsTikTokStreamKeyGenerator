@@ -44,31 +44,36 @@ def configure_logging(level: str = "WARNING") -> Path | None:
 
     handlers: list[logging.Handler] = []
     file_path: Path | None = None
+    console_level = getattr(logging, str(level).upper(), logging.WARNING)
 
     try:
         directory = log_directory()
         directory.mkdir(parents=True, exist_ok=True)
         candidate = log_file_path()
-        handlers.append(
-            RotatingFileHandler(
-                candidate,
-                maxBytes=MAX_BYTES,
-                backupCount=BACKUP_COUNT,
-                encoding="utf-8",
-            )
+        file_handler = RotatingFileHandler(
+            candidate,
+            maxBytes=MAX_BYTES,
+            backupCount=BACKUP_COUNT,
+            encoding="utf-8",
         )
+        # The file always keeps at least INFO: it is the artefact a user sends
+        # when asking for help, and an empty file helps nobody.
+        file_handler.setLevel(min(console_level, logging.INFO))
+        handlers.append(file_handler)
         file_path = candidate
     except OSError:
         file_path = None
 
     if sys.stderr is not None:
-        handlers.append(logging.StreamHandler(sys.stderr))
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setLevel(console_level)
+        handlers.append(console_handler)
     if not handlers:
         # A windowed build may have neither a writable log file nor a console.
         handlers.append(logging.NullHandler())
 
     logging.basicConfig(
-        level=level.upper(),
+        level=min(console_level, logging.INFO),
         format=LOG_FORMAT,
         handlers=handlers,
         force=True,
