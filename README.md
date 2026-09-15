@@ -1,371 +1,123 @@
-# Generador de clave de directo de TikTok para OBS (vía Streamlabs)
+# Generador de clave de TikTok Live para OBS (vía Streamlabs)
 
 [![Pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml/badge.svg)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml)
 [![Compilación y publicación](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml/badge.svg)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml)
 [![Última versión](https://img.shields.io/github/v/release/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator?label=descarga)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)
 [![Licencia](https://img.shields.io/badge/licencia-GPL--3.0-blue)](LICENSE.txt)
 
-Aplicación de escritorio (PySide6) que **prepara una sesión RTMP de TikTok Live
-a través de Streamlabs y te da la URL del servidor y la clave de retransmisión**
-para pegarlas en OBS Studio o en cualquier otro programa de emisión.
+Aplicación para **Windows, macOS y Linux** que te da la **URL y la clave de
+retransmisión de TikTok Live** para pegarlas en OBS Studio. La sesión se prepara
+a través de Streamlabs.
 
-> **Importante:** la aplicación **no emite vídeo** ni configura OBS por ti. Lo
-> que hace es pedirle a Streamlabs que prepare la sesión; la emisión empieza
-> cuando OBS se conecta con esos datos.
+> No emite vídeo ni configura OBS: eso pasa cuando OBS se conecta con esos datos.
 
-## ⬇️ Instalación fácil
+---
 
-### En un solo comando (recomendado)
+## 📥 Instalación
 
-**Windows** — abre PowerShell y pega esto:
+### Windows — PowerShell
 
 ```powershell
 irm https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.ps1 | iex
 ```
 
-**macOS y Linux** — abre una terminal y pega esto:
+### macOS y Linux — Terminal
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.sh | bash
 ```
 
-Los dos hacen exactamente lo mismo:
+Los dos comandos descargan la última versión, **verifican su checksum** y la
+instalan en tu carpeta de usuario con acceso directo. **No piden permisos de
+administrador.**
 
-1. Buscan la **última versión** publicada (o la que les indiques: `install.sh 2.1.2`).
-2. Eligen el paquete de tu sistema y arquitectura.
-3. Lo descargan y **verifican su checksum**; si no coincide, no instalan nada.
-4. Lo instalan en tu carpeta de usuario y crean el acceso directo.
-5. **No piden permisos de administrador.**
+Como estos comandos ejecutan un script, conviene saber qué ejecutan: son cortos y
+legibles — [`install.ps1`](install.ps1) e [`install.sh`](install.sh).
 
-Al terminar te dicen la ruta instalada; para **desinstalar**, borra esa carpeta
-(y el acceso directo). Los scripts son legibles: [`install.ps1`](install.ps1) e
-[`install.sh`](install.sh).
-
-### Descarga manual
+### O descarga manual
 
 | | |
 |---|---|
-| **[Descargar la última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema + `SHA256SUMS.txt` |
-| [Todas las versiones](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Historial completo |
-| [Compilaciones automáticas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Ver el estado y descargar artefactos de una compilación concreta |
+| **[⬇️ Última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema + `SHA256SUMS.txt` |
+| [Todas las versiones](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Historial |
+| [Compilación automática](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de cada sistema |
 | [Estado de las pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml) | Ubuntu, Windows y macOS |
 
-Los binarios se compilan **automáticamente** en GitHub Actions: no hay que
-compilar nada a mano. Sigue leyendo para elegir tu archivo y verificar que la
-descarga es íntegra.
+Elige el archivo según tu sistema: **`-win-`** (Windows), **`-arm64-macos-`**
+(macOS Apple Silicon), **`-x86_64-macos-`** (macOS Intel), **`-linux-`** (Linux).
 
-Este repositorio es una versión endurecida (y traducida) del proyecto original
-de [Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator).
-Ver [Atribución y licencia](#atribución-y-licencia).
-
----
-
-## Índice
-
-- [Qué necesitas antes de empezar](#qué-necesitas-antes-de-empezar)
-- [Descarga e instalación](#descarga-e-instalación)
-- [Uso paso a paso](#uso-paso-a-paso)
-- [Cómo emitir en OBS](#cómo-emitir-en-obs)
-- [Dónde se guarda tu token (seguridad)](#dónde-se-guarda-tu-token-seguridad)
-- [Actualizaciones](#actualizaciones)
-- [Problemas frecuentes](#problemas-frecuentes)
-- [Ejecutar desde el código fuente](#ejecutar-desde-el-código-fuente)
-- [Publicar una versión nueva](#publicar-una-versión-nueva-mantenedor)
-- [Avisos y limitaciones](#avisos-y-limitaciones)
-- [Atribución y licencia](#atribución-y-licencia)
-
----
-
-## Qué necesitas antes de empezar
-
-1. **Una cuenta de TikTok con acceso a TikTok LIVE vía Streamlabs.** Es un
-   programa con aprobación: si tu cuenta no lo tiene, esta aplicación no puede
-   hacer nada. Se solicita aquí:
-   <https://tiktok.com/falcon/live_g/live_access_pc_apply/result/index.html?id=GL6399433079641606942&lang=en-US>
-   *(No hace falta tener 1.000 seguidores para pedirlo.)*
-2. **Windows, macOS o Linux.**
-3. **Un navegador** para la opción de inicio de sesión web.
-4. *(Opcional)* **Streamlabs Desktop instalado y con sesión iniciada en TikTok**,
-   solo si quieres usar el botón «Cargar desde el PC».
-5. *(Solo Linux)* El paquete **`libsecret`** si quieres que el token se guarde
-   cifrado. Sin él, el token solo dura lo que dure la aplicación abierta.
-
----
-
-## Descarga e instalación
-
-### Opción A — Usar la versión compilada (recomendado)
-
-⬇️ **<https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest>**
-
-1. Entra en ese enlace (o en la pestaña **[Releases](../../releases/latest)** del
-   repositorio).
-2. Descarga el archivo que corresponda a tu sistema:
-   - `...-win-<versión>.zip` → **Windows**
-   - `...-arm64-macos-<versión>.zip` → **macOS con Apple Silicon** (M1/M2/M3…)
-   - `...-x86_64-macos-<versión>.zip` → **macOS con Intel**
-   - `...-linux-<versión>.zip` → **Linux**
-3. **Comprueba el checksum** (recomendado, 10 segundos). Abre `SHA256SUMS.txt` en
-   la misma página de la release y compara el valor de tu archivo con su línea:
-
-   ```powershell
-   # Windows
-   Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-2.1.0.zip -Algorithm SHA256
-   ```
-   ```bash
-   # macOS
-   shasum -a 256 StreamLabsTikTokStreamKeyGenerator-x86_64-macos-2.1.0.zip
-   # Linux
-   sha256sum StreamLabsTikTokStreamKeyGenerator-linux-2.1.0.zip
-   ```
-
-   Si descargas **todos** los ZIP en una misma carpeta junto a `SHA256SUMS.txt`,
-   en Linux puedes verificarlos de una sola vez:
-
-   ```bash
-   sha256sum -c --ignore-missing SHA256SUMS.txt
-   ```
-
-   El hash debe coincidir exactamente con su línea del archivo. Si no coincide,
-   **no lo ejecutes**: vuelve a descargarlo.
-4. Descomprime el ZIP y ejecuta la aplicación.
-
-**Notas por sistema:**
-
-- **Windows:** el binario no está firmado, así que SmartScreen puede avisar
-  («Windows protegió tu PC»). Pulsa *Más información → Ejecutar de todas formas*
-  solo si el checksum coincide.
-- **macOS:** Gatekeeper puede decir que la aplicación «está dañada o está
-  incompleta». **No desactives Gatekeeper a ciegas**; si el checksum es correcto,
-  puedes quitar la cuarentena del archivo que descargaste:
-
-  ```bash
-  xattr -dr com.apple.quarantine /ruta/a/StreamLabsTikTokStreamKeyGenerator.app
-  ```
-- **Linux:** si al guardar el token te dice que no hay almacén seguro, instala
-  `libsecret` (`sudo apt install libsecret-1-0` en Debian/Ubuntu).
-
-### Opción B — Ejecutar desde el código fuente
-
-Ver [Ejecutar desde el código fuente](#ejecutar-desde-el-código-fuente).
-
----
-
-## Uso paso a paso
-
-### 1. Abre la aplicación
-
-### 2. Consigue el token de Streamlabs
-
-Tienes tres formas. Elige **una**:
-
-| Método | Cuándo usarlo | Qué hace |
-|---|---|---|
-| **Iniciar sesión web** | Lo normal, y lo recomendado | Abre tu navegador, inicias sesión en Streamlabs y la aplicación recibe el token sola (OAuth con PKCE). |
-| **Cargar desde el PC** | Si ya usas Streamlabs Desktop | Lee el token que Streamlabs Desktop tiene guardado en tu equipo. Solo Windows y macOS. |
-| **Pegar el token** | Si ya lo tienes a mano | Pégalo en el campo del token. |
-
-Con **Iniciar sesión web**: se abrirá una pestaña del navegador, inicias sesión en
-Streamlabs con tu cuenta de TikTok y, cuando termine, puedes cerrar esa pestaña.
-La aplicación recibe el token automáticamente.
-
-Con **Cargar desde el PC**: no necesitas navegador, pero **lee datos de otra
-aplicación** (Streamlabs Desktop). Es legítimo en tu propio equipo, aunque
-algunos antivirus se ponen nerviosos con eso; si te pasa, usa *Iniciar sesión web*.
-
-### 3. Valida la cuenta
-
-Pulsa **Actualizar datos de la cuenta**. Verás arriba rellenados:
-
-- **Username:** tu usuario de TikTok.
-- **Status:** el estado de tu solicitud de acceso.
-- **Puede emitir:** `True` o `False`.
-
-Si pone `False`, tu cuenta todavía no tiene permiso de emisión: **el botón Go
-Live quedará bloqueado**, porque TikTok rechazaría el directo igualmente.
-
-### 4. Guarda el token (opcional pero cómodo)
-
-Pulsa **Guardar token de forma segura**. El token se guarda **cifrado en el almacén de
-credenciales de tu sistema** (Administrador de credenciales de Windows, Llavero
-de macOS, Secret Service en Linux), así que la próxima vez la aplicación arranca
-ya con la sesión puesta y no tienes que volver a iniciar sesión.
-
-### 5. Rellena el directo
-
-- **Título del directo:** el título del directo.
-- **Categoría:** empieza a escribir y elige una de las sugerencias que
-  aparecen debajo (o escribe `Other`).
-- **Contenido para adultos:** márcalo si el directo es para +18.
-
-### 6. Pulsa **Preparar directo**
-
-La aplicación le pide a Streamlabs que prepare la sesión y te muestra:
-
-- **URL del servidor** → la URL del servidor RTMP.
-- **Clave de retransmisión** → la clave de retransmisión (aparece oculta; se copia con el
-  botón).
-
-Usa los botones **Copiar URL** y **Copiar clave** para copiarlas. Por seguridad, la
-clave **se borra del portapapeles a los 60 segundos**.
-
-### 7. Pega los datos en OBS
-
-Ver [Cómo emitir en OBS](#cómo-emitir-en-obs).
-
-### 8. Al terminar, pulsa **Finalizar directo**
-
-Esto cierra la sesión en Streamlabs. **Es importante hacerlo**: si dejas una
-sesión abierta, TikTok puede rechazarte el siguiente directo.
-
-> Si la aplicación o el equipo se cierran de golpe con un directo preparado, la
-> próxima vez que abras la aplicación te avisará y te ofrecerá **cerrar esa
-> sesión pendiente** (o descartar el aviso).
-
----
-
-## Cómo emitir en OBS
-
-1. Abre OBS Studio.
-2. **Ajustes** (o *Configuración*) → **Emisión**.
-3. En **Servicio**, elige **Personalizado…**.
-4. **Servidor:** pega la **URL del servidor** que te dio la aplicación.
-5. **Clave de retransmisión:** pega la **Clave de retransmisión**.
-6. Pulsa **Aplicar** y luego **Empezar transmisión**.
-
-No cambies nada más. Si OBS no conecta, revisa que hayas copiado los dos valores
-completos y que no haya espacios de más delante o detrás.
-
----
-
-## Dónde se guarda tu token (seguridad)
-
-- El token **nunca** se escribe en el archivo de configuración (`config.json`).
-  Ese archivo solo guarda preferencias: título, categoría, contenido para
-  adultos y los datos de la sesión preparada (identificador, título y hora, sin
-  ningún secreto).
-- El token vive en el **almacén de credenciales del sistema**. Si tu sistema no
-  tiene uno disponible, la aplicación te avisa y el token **solo dura la sesión
-  abierta**: al cerrar, tendrás que volver a cargarlo.
-- La aplicación **no imprime el token** ni lo escribe en el registro de
-  actividad (log).
-- Las versiones antiguas guardaban el token en texto plano dentro de
-  `config.json`. Si la aplicación encuentra uno de esos archivos, te pregunta
-  qué hacer: **importarlo** al almacén seguro, **borrar** el archivo antiguo o
-  dejarlo para luego. Si eliges no importarlo, ese token **no se carga**.
-
-👉 **Nunca publiques tu token ni tu clave de retransmisión** en un *issue*, en un chat o en
-una captura de pantalla: con ellos se pueden abrir y cerrar directos en tu
-cuenta. Lee [`SECURITY.md`](SECURITY.md) antes de pedir ayuda.
-
----
-
-## Actualizaciones
-
-La aplicación comprueba si hay una versión nueva al arrancar (en segundo plano,
-sin molestarte si no hay nada nuevo) y te ofrece:
-
-- **Descargar:** baja el paquete de tu sistema a tu carpeta de descargas,
-  mostrando el progreso y con opción de cancelar. Antes de darlo por bueno
-  **verifica el checksum publicado**; si no coincide, borra el archivo.
-  **La aplicación nunca ejecuta ni instala nada**: eso lo decides tú.
-- **Abrir la página del release:** para que elijas el archivo a mano.
-
----
-
-## Problemas frecuentes
-
-<details>
-<summary><b>«Puede emitir: False» / el botón Preparar directo está bloqueado</b></summary>
-
-Tu cuenta no tiene permiso de emisión vía Streamlabs. Solicítalo (no hacen falta
-1.000 seguidores) y espera la aprobación. Mientras tanto no hay nada que la
-aplicación pueda hacer: es un requisito de TikTok/Streamlabs.
-</details>
-
-<details>
-<summary><b>«El token de Streamlabs ha caducado o no es válido»</b></summary>
-
-Vuelve a cargarlo con **Iniciar sesión web** (o *Cargar desde el PC*) y pulsa **Refresh
-Account Info**. Si tenías el token guardado, se reemplaza solo.
-</details>
-
-<details>
-<summary><b>No encuentra el token con «Cargar desde el PC»</b></summary>
-
-- Comprueba que Streamlabs Desktop está instalado **y con la sesión de TikTok
-  iniciada**.
-- En Linux esa opción no existe: usa **Iniciar sesión web**.
-- Si tu antivirus bloquea la lectura, usa **Iniciar sesión web**.
-</details>
-
-<details>
-<summary><b>Mi antivirus marca el programa</b></summary>
-
-Es esperable: la opción «Cargar desde el PC» lee el almacén local de otra aplicación
-(la misma técnica que usan los ladrones de credenciales), así que algunos
-antivirus se quejan. Si no te fías, usa solo **Iniciar sesión web**, o compila el
-programa tú mismo desde el código fuente.
-</details>
-
-<details>
-<summary><b>macOS: «la aplicación está dañada o está incompleta»</b></summary>
-
-Es la cuarentena de Gatekeeper sobre un binario sin firmar. Si el checksum
-coincide, quita la cuarentena:
-
-```bash
-xattr -dr com.apple.quarantine /ruta/a/StreamLabsTikTokStreamKeyGenerator.app
-```
-</details>
-
-<details>
-<summary><b>OBS no conecta / TikTok rechaza el directo</b></summary>
-
-1. Comprueba que **puede emitir** sea `True`.
-2. Pulsa **Finalizar directo** en la aplicación y vuelve a pulsar **Preparar directo** para generar
-   una sesión nueva (las claves caducan).
-3. Verifica que has pegado la URL y la clave **completas** y sin espacios.
-4. Si el problema empezó justo después de cerrar la aplicación de golpe, deja que
-   te ofrezca **cerrar la sesión anterior** al abrirla.
-</details>
-
-<details>
-<summary><b>¿Dónde están los registros para pedir ayuda?</b></summary>
-
-Pulsa el botón **Registros** en la aplicación: se abre la carpeta con `app.log`. Ese
-archivo **no contiene tokens, códigos de autorización ni claves de retransmisión**, así que
-es lo que debes adjuntar si abres un *issue*. Aun así, échale un vistazo antes de
-enviarlo.
-
-Si necesitas más detalle, arranca la aplicación con registro en modo depuración:
+Comprueba el checksum antes de ejecutarlo:
 
 ```powershell
-$env:STREAMLABS_KEYGEN_LOG_LEVEL = "DEBUG"; .\StreamLabsTikTokStreamKeyGenerator.exe
-# o desde el código fuente:
-$env:STREAMLABS_KEYGEN_LOG_LEVEL = "DEBUG"; python StreamLabsTikTokStreamKeyGenerator.py
+# Windows
+Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-<versión>.zip -Algorithm SHA256
 ```
-</details>
+```bash
+# macOS / Linux
+shasum -a 256 StreamLabsTikTokStreamKeyGenerator-<sistema>-<versión>.zip
+```
 
-<details>
-<summary><b>¿Necesito 1.000 seguidores para el acceso de Streamlabs?</b></summary>
-
-No. Puedes solicitarlo con menos seguidores.
-</details>
+Compara el valor con su línea de `SHA256SUMS.txt`. Si no coincide, **no lo
+ejecutes**: vuélvelo a descargar.
 
 ---
 
-## Ejecutar desde el código fuente
+## 🚀 Uso en 5 pasos
 
-Requiere **Python 3.11 o superior** (el CI prueba con 3.12 y compila con 3.13).
+1. Abre la aplicación.
+2. **Iniciar sesión web** (recomendado) o **Cargar desde el PC** si usas
+   Streamlabs Desktop. También puedes pegar un token a mano.
+3. **Actualizar datos de la cuenta** → debe aparecer *Puede emitir: True*.
+4. Opcional: **Guardar token de forma segura** para no repetir el login.
+5. Escribe el **título** y la **categoría** → **Preparar directo** → **Copiar URL**
+   y **Copiar clave**.
 
-Todas las dependencias en un solo comando, sin clonar nada:
+### En OBS
+
+Ajustes → **Emisión** → Servicio: **Personalizado** → pega la **URL del servidor**
+y la **Clave de retransmisión** → Aplicar.
+
+Al terminar, pulsa **Finalizar directo** para cerrar la sesión en Streamlabs (si
+la dejas abierta, TikTok puede rechazar el siguiente directo).
+
+> Si la aplicación se cierra de golpe con un directo preparado, al volver a
+> abrirla te ofrecerá **cerrar esa sesión pendiente**.
+
+---
+
+## 🔒 Tu token
+
+- Se guarda **cifrado en el almacén de credenciales del sistema** (Windows,
+  macOS, Linux). **Nunca** en `config.json`.
+- La aplicación **no lo imprime** ni lo escribe en los registros.
+- **No lo publiques** en un issue ni en una captura. Lee [`SECURITY.md`](SECURITY.md).
+
+---
+
+## 🧰 Si algo falla
+
+| Problema | Qué hacer |
+|---|---|
+| *Puede emitir: False* | Tu cuenta no tiene acceso LIVE vía Streamlabs: [solicítalo](https://tiktok.com/falcon/live_g/live_access_pc_apply/result/index.html?id=GL6399433079641606942&lang=en-US) (no hacen falta 1000 seguidores). |
+| **Preparar directo** deshabilitado | Valida la cuenta y elige una categoría de la lista. |
+| «El token ha caducado» | Vuelve a **Iniciar sesión web**. |
+| OBS no conecta | **Finalizar directo** y **Preparar directo** otra vez (las claves caducan). |
+| «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
+| Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
+| macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
+| Necesitas ayuda | Pulsa **Registros** y adjunta `app.log`: no contiene tokens ni claves. |
+
+---
+
+## 💻 Desde el código fuente
+
+Python **3.11 o superior**. Todas las dependencias en un comando:
 
 ```bash
 python -m pip install -r https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/requirements.txt
 ```
 
-Y si prefieres el flujo completo con el código:
+O el flujo completo:
 
 ```bash
 git clone https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator.git
@@ -374,79 +126,27 @@ python -m pip install -r requirements.txt
 python StreamLabsTikTokStreamKeyGenerator.py
 ```
 
-Para desarrollar y pasar las pruebas:
+Para desarrollar: `python -m pip install -r requirements-dev.txt`, `ruff check .`
+y `pytest` (107 pruebas, también de la interfaz).
 
-```bash
-python -m pip install -r requirements-dev.txt
-ruff check .
-pytest
-```
-
-> En Windows, si `python` te abre la Microsoft Store en vez de ejecutarse, es que
-> solo tienes el alias y no un Python real: instálalo desde
-> [python.org](https://www.python.org/downloads/windows/) marcando *Add python.exe
-> to PATH*, o desactiva el alias en *Configuración → Aplicaciones → Configuración
-> avanzada de aplicaciones → Alias de ejecución de aplicaciones*.
-
-El código fuente **no necesita** el archivo `_version.py` (lo genera el proceso
-de compilación); sin él usa una versión de desarrollo, y las versiones de
-desarrollo nunca avisan de actualizaciones.
+> En Windows, si `python` abre la Microsoft Store es que solo tienes el alias:
+> instala Python desde [python.org](https://www.python.org/downloads/windows/)
+> marcando *Add python.exe to PATH*.
 
 ---
 
-## Publicar una versión nueva (mantenedor)
+## ⚠️ Avisos
 
-Basta con empujar una etiqueta con formato `vMAYOR.MENOR.PARCHE`:
-
-```bash
-git tag v2.1.0
-git push origin v2.1.0
-```
-
-Eso ejecuta las pruebas, compila **Windows, macOS (x86_64 y arm64) y Linux**,
-genera `SHA256SUMS.txt` y publica la release con notas generadas
-automáticamente.
-
-**Enlaces útiles durante la publicación:**
-
-| | |
-|---|---|
-| [Ver la compilación en marcha](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de cada sistema en tiempo real |
-| [Lanzarla a mano](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) → *Run workflow* | Para escribir tú el changelog |
-| [Descargar artefactos de una compilación](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) → abre un *run* → sección **Artifacts** | Sirve para probar una compilación antes de publicarla |
-| [Versiones publicadas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Borrar o editar una release |
-
-Si una compilación falla, no hace falta crear otro tag: abre el *run* y usa
-**Re-run failed jobs** (o **Re-run all jobs**).
+- Usa los **endpoints internos de Streamlabs Desktop**, no una API pública: si
+  Streamlabs cambia su aplicación, puede dejar de funcionar. El riesgo de los
+  términos de servicio recae sobre **la cuenta que autoriza**.
+- Los binarios **no están firmados**: Windows SmartScreen o macOS Gatekeeper
+  pueden avisar. Comprueba siempre el checksum.
 
 ---
 
-## Avisos y limitaciones
+## 📄 Licencia
 
-- **Endpoints internos.** Las operaciones usan los endpoints que Streamlabs
-  Desktop emplea por dentro (`/api/v5/slobs/tiktok`), no una API pública, y el
-  inicio de sesión se hace con la identificación de Streamlabs Desktop. Si
-  Streamlabs cambia su aplicación, esto puede dejar de funcionar y habrá que
-  actualizar el programa.
-- **Términos de servicio.** Usar estos endpoints puede quedar fuera de los
-  términos de Streamlabs. **Las consecuencias recaen sobre la cuenta que
-  autoriza el token**, no sobre el autor del programa. Valóralo antes de usarlo.
-- **«Cargar desde el PC»** lee el almacén local de otra aplicación en tu equipo (ver
-  arriba).
-- **Binarios sin firmar.** Windows y macOS pueden avisar al ejecutarlos.
-  Comprueba siempre el checksum y no desactives Gatekeeper a ciegas.
-- **TikTok y Streamlabs pueden cambiar sus reglas de acceso** en cualquier
-  momento; no todas las cuentas reciben clave RTMP.
-
----
-
-## Atribución y licencia
-
-La aplicación original la escribió [Loukious](https://github.com/Loukious) y se
-distribuye bajo licencia **GPL-3.0**. Este repositorio es una obra derivada y
-mantiene esa misma licencia; consulta [`LICENSE.txt`](LICENSE.txt).
-
-Por continuidad, el directorio de configuración y el nombre del servicio en el
-almacén de credenciales siguen usando el identificador del autor original:
-cambiarlos dejaría huérfanas la configuración y el token guardado de las
-instalaciones que ya existen.
+GPL-3.0 — consulta [`LICENSE.txt`](LICENSE.txt). Obra original de
+[Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator); este
+repositorio es una versión derivada, endurecida y traducida.
