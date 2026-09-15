@@ -3,6 +3,8 @@ build/*
 dist/*
 */__pycache__/*
 .env
+*.key
+*.crt
 __pycache__/*
 *.json
 .venv/*

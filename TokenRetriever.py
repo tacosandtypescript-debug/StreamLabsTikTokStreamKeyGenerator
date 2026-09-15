@@ -1,141 +1,172 @@
-import hashlib
-import json
-import os
+"""OAuth token retrieval through Streamlabs' local browser callback."""
+
+from __future__ import annotations
+
 import base64
-import socket
+import hashlib
+import secrets
 import threading
 import webbrowser
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
+from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
+
 import requests
+
+
+class TokenRetrievalError(RuntimeError):
+    """Raised when the browser login cannot be completed safely."""
 
 
 class TokenRetriever:
     STREAMLABS_API_URL = "https://streamlabs.com/api/v5/slobs/auth/data"
+    AUTH_URL = "https://streamlabs.com/slobs/login"
+    # Streamlabs has used more than one loopback callback path over time. Keep
+    # the allow-list explicit while covering the known variants.
+    CALLBACK_PATHS = {"", "/", "/auth", "/callback", "/tiktok/auth"}
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        browser_opener: Callable[[str], bool] | None = None,
+        http_get: Callable[..., Any] | None = None,
+    ) -> None:
         self.code_verifier = self._generate_code_verifier()
         self.code_challenge = self._generate_code_challenge(self.code_verifier)
+        self.state = secrets.token_urlsafe(32)
         self._auth_code: str | None = None
+        self._callback_error: str | None = None
         self._server_event = threading.Event()
-
-    # ------------------------------------------------------------------ #
-    #  PKCE helpers                                                        #
-    # ------------------------------------------------------------------ #
+        self._browser_opener = browser_opener or webbrowser.open
+        self._http_get = http_get or requests.get
 
     @staticmethod
     def _generate_code_verifier() -> str:
-        """64-byte hex string (128 hex chars) used as the PKCE verifier."""
-        return os.urandom(64).hex()
+        """Generate a high-entropy RFC 7636-compatible verifier."""
+
+        return secrets.token_urlsafe(64)
 
     @staticmethod
     def _generate_code_challenge(verifier: str) -> str:
-        """SHA-256 of the verifier, base64url-encoded (no padding)."""
-        digest = hashlib.sha256(verifier.encode()).digest()
-        return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+        """Return the unpadded base64url SHA-256 PKCE challenge."""
 
-    # ------------------------------------------------------------------ #
-    #  Port helper                                                         #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _find_free_port() -> int:
-        """Bind to port 0 and let the OS pick a free ephemeral port."""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            return s.getsockname()[1]
-
-    # ------------------------------------------------------------------ #
-    #  Local callback server                                               #
-    # ------------------------------------------------------------------ #
+        digest = hashlib.sha256(verifier.encode("ascii")).digest()
+        return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     def _make_handler(self):
-        """Return an HTTPServer request handler that captures the auth code."""
-        retriever = self  # close over self
+        retriever = self
 
-        class _CallbackHandler(BaseHTTPRequestHandler):
-            def do_GET(self):
+        class CallbackHandler(BaseHTTPRequestHandler):
+            server_version = "StreamlabsCallback/1.0"
+            sys_version = ""
+
+            def _send(self, status: int, body: bytes) -> None:
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Security-Policy", "default-src 'none'")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
                 parsed = urlparse(self.path)
-                params = parse_qs(parsed.query)
+                params = parse_qs(parsed.query, keep_blank_values=True)
+                callback_state = params.get("state", [None])[0]
 
-                if params.get("success", [""])[0] == "true" and "code" in params:
-                    retriever._auth_code = params["code"][0]
-                    body = b"<h2>Authentication successful! You can close this tab.</h2>"
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                if parsed.path not in retriever.CALLBACK_PATHS:
+                    self._send(404, b"<h2>Unknown callback path.</h2>")
+                    return
+
+                host = self.headers.get("Host", "").split(":", 1)[0].strip("[]").lower()
+                if host not in {"127.0.0.1", "localhost"}:
+                    self._send(400, b"<h2>Invalid callback host.</h2>")
+                    return
+
+                # The internal Streamlabs flow does not always echo arbitrary
+                # OAuth parameters. Validate state when it is returned; PKCE
+                # still binds the authorization code to this login otherwise.
+                if callback_state is not None and callback_state != retriever.state:
+                    self._send(400, b"<h2>Invalid authentication state.</h2>")
+                    return
+
+                success = params.get("success", [""])[0].lower() == "true"
+                code = params.get("code", [""])[0]
+                if success and code:
+                    retriever._auth_code = code
+                    self._send(
+                        200,
+                        b"<h2>Authentication successful. You can close this tab.</h2>",
+                    )
                 else:
-                    body = b"<h2>Authentication failed. Please try again.</h2>"
-                    self.send_response(400)
-                    self.send_header("Content-Type", "text/html")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-
-                # signal the main thread regardless of outcome
+                    retriever._callback_error = (
+                        "Streamlabs no devolvió un código de autenticación válido."
+                    )
+                    self._send(400, b"<h2>Authentication failed. Please try again.</h2>")
                 retriever._server_event.set()
 
-            def log_message(self, *_):
-                pass  # suppress default access log noise
+            def log_message(self, *_: object) -> None:
+                # Never write callback URLs or OAuth codes to stdout.
+                return
 
-        return _CallbackHandler
+        return CallbackHandler
 
-    def _start_callback_server(self, port: int) -> HTTPServer:
-        server = HTTPServer(("127.0.0.1", port), self._make_handler())
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+    def _start_callback_server(self) -> HTTPServer:
+        server = HTTPServer(("127.0.0.1", 0), self._make_handler())
+        thread = threading.Thread(target=server.serve_forever, name="oauth-callback", daemon=True)
         thread.start()
         return server
 
-    # ------------------------------------------------------------------ #
-    #  Main entry point                                                    #
-    # ------------------------------------------------------------------ #
+    def _build_auth_url(self, port: int) -> str:
+        params = {
+            "skip_splash": "true",
+            "external": "electron",
+            "tiktok": "",
+            "force_verify": "",
+            "origin": "slobs",
+            "port": str(port),
+            "code_challenge": self.code_challenge,
+            "code_flow": "true",
+            "state": self.state,
+        }
+        return f"{self.AUTH_URL}?{urlencode(params)}"
 
     def retrieve_token(self, timeout: int = 300) -> str | None:
-        """
-        Open the Streamlabs login page in the user's default browser, wait for
-        the OAuth callback on a local server, then exchange the code for a token.
+        """Open login, validate the loopback callback and exchange its code."""
 
-        Args:
-            timeout: seconds to wait for the user to complete login (default 5 min)
+        if timeout <= 0:
+            raise ValueError("El timeout debe ser positivo.")
 
-        Returns:
-            The oauth_token string on success, or None on failure.
-        """
-        port = self._find_free_port()
+        server = self._start_callback_server()
+        port = int(server.server_address[1])
+        try:
+            try:
+                opened = self._browser_opener(self._build_auth_url(port))
+            except Exception as exc:
+                raise TokenRetrievalError(
+                    "No se pudo abrir el navegador para iniciar sesión."
+                ) from exc
+            if opened is False:
+                raise TokenRetrievalError(
+                    "No se pudo abrir el navegador para iniciar sesión."
+                )
 
-        auth_url = (
-            f"https://streamlabs.com/slobs/login?"
-            f"skip_splash=true&external=electron&tiktok&force_verify"
-            f"&origin=slobs&port={port}"
-            f"&code_challenge={self.code_challenge}&code_flow=true"
-        )
-
-        server = self._start_callback_server(port)
-
-        print(f"Opening browser for Streamlabs login (callback on port {port})…")
-        webbrowser.open(auth_url)
-
-        completed = self._server_event.wait(timeout=timeout)
-        threading.Thread(target=server.shutdown, daemon=True).start()
-
-        if not completed:
-            print("Timed out waiting for the user to complete login.")
-            return None
-
-        if not self._auth_code:
-            print("Callback received but no auth code was present.")
-            return None
-
-        return self._exchange_code_for_token(self._auth_code)
-
-    # ------------------------------------------------------------------ #
-    #  Token exchange                                                      #
-    # ------------------------------------------------------------------ #
+            completed = self._server_event.wait(timeout=timeout)
+            if not completed:
+                return None
+            if self._callback_error:
+                return None
+            if not self._auth_code:
+                return None
+            return self._exchange_code_for_token(self._auth_code)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def _exchange_code_for_token(self, code: str) -> str | None:
-        """POST the auth code + verifier to Streamlabs and return the oauth_token."""
+        """Exchange the short-lived authorization code without logging secrets."""
+
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -143,11 +174,8 @@ class TokenRetriever:
                 "StreamlabsDesktop/1.20.4 Chrome/122.0.6261.156 "
                 "Electron/29.3.1 Safari/537.36"
             ),
-            "Accept": "*/*",
+            "Accept": "application/json",
             "Accept-Language": "en-US",
-            "Sec-Fetch-Site": "cross-site",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty",
         }
         params = {
             "code_verifier": self.code_verifier,
@@ -155,30 +183,34 @@ class TokenRetriever:
         }
 
         try:
-            response = requests.get(
+            response = self._http_get(
                 self.STREAMLABS_API_URL,
                 params=params,
                 headers=headers,
-                timeout=30,
+                timeout=(10, 30),
             )
-        except requests.RequestException as e:
-            print(f"Network error during token exchange: {e}")
-            return None
+        except requests.Timeout as exc:
+            raise TokenRetrievalError("Streamlabs tardó demasiado en validar el login.") from exc
+        except requests.RequestException as exc:
+            raise TokenRetrievalError("No se pudo validar el login con Streamlabs.") from exc
 
         if response.status_code != 200:
-            print(f"Token exchange failed: HTTP {response.status_code} — {response.text}")
-            return None
+            raise TokenRetrievalError(
+                f"Streamlabs rechazó el intercambio del login (HTTP {response.status_code})."
+            )
 
         try:
             data = response.json()
-        except json.JSONDecodeError:
-            print("Token exchange returned non-JSON response.")
-            return None
+        except (ValueError, requests.exceptions.JSONDecodeError) as exc:
+            raise TokenRetrievalError(
+                "Streamlabs devolvió una respuesta inválida durante el login."
+            ) from exc
 
-        if not data.get("success"):
-            print(f"Streamlabs reported failure: {data}")
-            return None
+        if not isinstance(data, dict) or data.get("success") is not True:
+            raise TokenRetrievalError("Streamlabs no pudo completar el login.")
 
-        token = data["data"].get("oauth_token")
-        print(f"Got Streamlabs OAuth token: {token}")
-        return token
+        token_data = data.get("data")
+        token = token_data.get("oauth_token") if isinstance(token_data, dict) else None
+        if not isinstance(token, str) or not token.strip():
+            raise TokenRetrievalError("Streamlabs no devolvió un token válido.")
+        return token.strip()

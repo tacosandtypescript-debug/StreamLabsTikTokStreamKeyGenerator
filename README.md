@@ -1,52 +1,113 @@
-# TikTok Live Stream Key Generator for OBS Studio Using Streamlabs API
+# TikTok Live Stream Key Generator for OBS Studio Using Streamlabs
 
-## Description
-This application is a simple tool that generates a TikTok Live Stream Key for OBS Studio using the Streamlabs API. Streamlabs TikTok LIVE access is required.
+This is a small PySide6 desktop application that prepares a TikTok RTMP
+session through Streamlabs and displays the server URL and stream key for OBS
+Studio or another streaming client.
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/loukious)
-
-
-## Features
-- Generate TikTok Live Stream Key using Streamlabs API
+The application does not transmit video and does not configure OBS
+automatically. It asks Streamlabs to prepare the session; the actual broadcast
+starts when OBS sends the stream.
 
 ## Requirements
-- Streamlabs TikTok LIVE access. You can request access [here](https://tiktok.com/falcon/live_g/live_access_pc_apply/result/index.html?id=GL6399433079641606942&lang=en-US)
-- TikTok account
-- Streamlabs installed on your computer and you are logged in with your TikTok account in Streamlabs (optional)
 
-## Download
-- Download the latest release from [here](../../releases/latest)
+- A TikTok account with the required Streamlabs TikTok LIVE/RTMP access.
+- Windows, macOS, or Linux for the graphical application.
+- Python 3.11 or newer when running from source.
+- A browser for the web-login flow.
+
+Streamlabs may change access rules or its desktop integration. In particular,
+not every TikTok account receives RTMP stream-key access, and the official
+Streamlabs Desktop flow may not require a manually copied key.
+
+## Run from source
+
+Install runtime dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Start the application:
+
+```bash
+python StreamLabsTikTokStreamKeyGenerator.py
+```
+
+For development and tests:
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+The source checkout does not require a generated `_version.py`; it uses a
+development version until a release build supplies one.
+
+## Authentication and token storage
+
+The application supports two token-loading paths:
+
+1. **Load from PC** reads the known Streamlabs Desktop local-storage directory
+   on Windows or macOS.
+2. **Load from Web** opens the Streamlabs login page and receives the OAuth
+   callback on a loopback-only local server using PKCE.
+
+Tokens are not stored in `config.json`. After successful account validation,
+the **Save Token Securely** button stores the token in the operating system's
+credential store through `keyring`:
+
+- Windows Credential Manager
+- macOS Keychain
+- Linux Secret Service/libsecret
+
+If no secure backend is available, the token is used for the current session
+only and must be loaded again after restarting the application.
+
+Older versions stored a token in a working-directory `config.json`. On first
+launch, the application offers to migrate that token to the OS credential
+store and removes the token field from the old configuration only after the
+user accepts and the secure save succeeds.
 
 ## Usage
-1. Run the application.
-2. click on the "Load from PC" button if you have Streamlabs installed on your computer and you are logged in with your TikTok account in Streamlabs, otherwise click on the "Login from Web" button.
-3. Select stream title and category.
-4. Click on "Save Config" button to save the token, title and category.
-5. Click on the "Go Live" button.
 
+1. Obtain the required TikTok LIVE/RTMP access through Streamlabs.
+2. Use **Load from PC**, **Load from Web**, or paste a token.
+3. Click **Refresh Account Info** and wait for account validation.
+4. Enter a title and choose a game category.
+5. Optionally click **Save Token Securely**.
+6. Click **Go Live** to prepare the Streamlabs session.
+7. Copy the displayed URL and stream key into OBS.
+8. Click **End Live** when the Streamlabs session should be closed.
 
-## Screenshots
+The stream key is copied to the clipboard only on request and is cleared after
+60 seconds if it has not been replaced by another application.
 
-![Screenshot](https://i.imgur.com/2PSgEQP.png)
+## Compatibility limitation
 
-## Output
+The TikTok operations use Streamlabs Desktop endpoints under
+`/api/v5/slobs/tiktok`. These endpoints are internal implementation details,
+not a stable public API contract. If Streamlabs changes its desktop
+application, the adapter may need an update. The application reports an
+endpoint or response-format change without printing tokens or response bodies.
 
-The app will output:
-- **Stream URL:** The URL needed to connect to the TikTok live stream.
-- **Stream key for OBS Studio (or any other streaming app):** Stream key that that you can use in OBS Studio to stream to TikTok.
+## Releases and security
 
-## Checkout my OBS-Multi-RTMP plugin fork!
-With [this](https://github.com/Loukious/obs-multi-rtmp) plugin, you can use your streamlabs token to stream directly to TikTok by saving it only once.
+Release archives are built by GitHub Actions for Windows, macOS, and Linux.
+Before running a downloaded binary, verify that it came from the expected
+release and compare its published checksum when one is provided. Do not
+disable macOS Gatekeeper quarantine blindly; an unsigned or unnotarized binary
+should be inspected or built from source instead.
 
-## FAQ
-### I'm getting you `You can't open the application "***" because it may be damaged or incomplete` error on MacOS. What should I do?
-I don't own a Mac so I can't test the app on MacOS but you can try the following:
-1. Open Terminal.
-2. Run the following command: `xattr -dr com.apple.quarantine /path/to/the/StreamLabsTikTokStreamKeyGenerator.app` (replace `/path/to/the/StreamLabsTikTokStreamKeyGenerator.app` with the path to the app).
-3. Try to run the app again.
+The project does not automatically download or execute updates. The update
+check only opens the GitHub release page after confirmation.
 
-### I'm getting an error when I try to stream. What should I do?
-1. First make sure it's not an issue related to Streamlabs. Try going live using Streamlabs and see if you get the same error.
-2. If it's not an issue related to Streamlabs, you can create an issue on GitHub with the error message and a screenshot of the error.
-### Do I need to have 1k followers to get Streamlabs TikTok LIVE access?
-No, you can request access even if you have less than 1k followers.
+## Development notes
+
+- `streamlabs_client.py` contains the typed, timeout-bound Streamlabs adapter.
+- `TokenRetriever.py` contains the browser OAuth/PKCE callback flow.
+- `secure_store.py` contains OS credential-store access.
+- `config_store.py` contains non-secret, versioned preferences.
+- `Stream.py` remains as a compatibility facade for older imports.
+
+The project is licensed under GPL-3.0. See `LICENSE.txt`.
