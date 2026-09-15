@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 import platform
+import re
+import time
 from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import quote
 
 import requests
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _safe_request_path(path: str) -> str:
+    """Return a log-safe endpoint path without exposing session identifiers."""
+
+    normalized = "/" + path.lstrip("/")
+    return re.sub(r"(/stream/)[^/]+(/end)$", r"\1<session>\2", normalized)
+
+
+def _response_fields(payload: dict[str, Any]) -> str:
+    """Summarize top-level response fields without logging their values."""
+
+    return ",".join(sorted(str(key) for key in payload)) or "<none>"
 
 STREAMLABS_TIKTOK_BASE_URL = "https://streamlabs.com/api/v5/slobs/tiktok"
 STREAMLABS_AUTH_DATA_URL = "https://streamlabs.com/api/v5/slobs/auth/data"
@@ -102,28 +121,92 @@ class StreamlabsTikTokClient:
         files: Iterable[tuple[str, tuple[None, str]]] | None = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
+        safe_path = _safe_request_path(path)
+        request_files = tuple(files) if files is not None else None
+        request_fields = (
+            ",".join(str(name) for name, _ in request_files)
+            if request_files is not None
+            else "<none>"
+        )
+        param_names = ",".join(sorted(params)) if params else "<none>"
+        started = time.monotonic()
+        LOGGER.info(
+            "Streamlabs request started: %s %s (params=%s, fields=%s)",
+            method.upper(),
+            safe_path,
+            param_names,
+            request_fields,
+        )
         try:
             response = self.session.request(
                 method,
                 url,
                 params=params,
-                files=files,
+                files=request_files,
                 timeout=self.timeout,
             )
         except requests.Timeout as exc:
+            LOGGER.warning(
+                "Streamlabs request timeout: %s %s after %.0f ms",
+                method.upper(),
+                safe_path,
+                (time.monotonic() - started) * 1000,
+            )
             raise NetworkError("Streamlabs tardó demasiado en responder.") from exc
         except requests.ConnectionError as exc:
+            LOGGER.warning(
+                "Streamlabs connection error: %s %s after %.0f ms",
+                method.upper(),
+                safe_path,
+                (time.monotonic() - started) * 1000,
+            )
             raise NetworkError("No se pudo conectar con Streamlabs.") from exc
         except requests.RequestException as exc:
+            LOGGER.warning(
+                "Streamlabs request error: %s %s (%s) after %.0f ms",
+                method.upper(),
+                safe_path,
+                type(exc).__name__,
+                (time.monotonic() - started) * 1000,
+            )
             raise NetworkError("La petición a Streamlabs falló.") from exc
 
+        elapsed_ms = (time.monotonic() - started) * 1000
+        LOGGER.info(
+            "Streamlabs response received: %s %s -> HTTP %s in %.0f ms",
+            method.upper(),
+            safe_path,
+            response.status_code,
+            elapsed_ms,
+        )
         if response.status_code in {401, 403}:
             if response.status_code == 403:
+                LOGGER.warning(
+                    "Streamlabs request rejected: %s %s -> HTTP 403 (permission)",
+                    method.upper(),
+                    safe_path,
+                )
                 raise PermissionError("Streamlabs rechazó el permiso para esta operación.")
+            LOGGER.warning(
+                "Streamlabs request rejected: %s %s -> HTTP 401 (authentication)",
+                method.upper(),
+                safe_path,
+            )
             raise AuthenticationError("El token de Streamlabs no es válido o caducó.")
         if response.status_code == 429:
+            LOGGER.warning(
+                "Streamlabs request rejected: %s %s -> HTTP 429 (rate limit)",
+                method.upper(),
+                safe_path,
+            )
             raise RateLimitError("Streamlabs limitó temporalmente las peticiones.")
         if response.status_code >= 400:
+            LOGGER.warning(
+                "Streamlabs request failed: %s %s -> HTTP %s",
+                method.upper(),
+                safe_path,
+                response.status_code,
+            )
             raise StreamlabsError(
                 f"Streamlabs devolvió un error HTTP {response.status_code}."
             )
@@ -131,12 +214,30 @@ class StreamlabsTikTokClient:
         try:
             payload = response.json()
         except (ValueError, requests.exceptions.JSONDecodeError) as exc:
+            LOGGER.warning(
+                "Streamlabs returned invalid JSON: %s %s (%s)",
+                method.upper(),
+                safe_path,
+                type(exc).__name__,
+            )
             raise InvalidResponseError(
                 "Streamlabs devolvió una respuesta que no es JSON válido."
             ) from exc
 
         if not isinstance(payload, dict):
+            LOGGER.warning(
+                "Streamlabs returned an unexpected JSON type: %s %s (%s)",
+                method.upper(),
+                safe_path,
+                type(payload).__name__,
+            )
             raise InvalidResponseError("La respuesta de Streamlabs no tiene el formato esperado.")
+        LOGGER.info(
+            "Streamlabs response fields: %s %s -> %s",
+            method.upper(),
+            safe_path,
+            _response_fields(payload),
+        )
         return payload
 
     def get_account_info(self) -> AccountInfo:
@@ -210,6 +311,15 @@ class StreamlabsTikTokClient:
         stream_key = payload.get("key")
         values = (session_id, rtmp_url, stream_key)
         if not all(isinstance(value, str) and value for value in values):
+            missing = ",".join(
+                name
+                for name, value in zip(("id", "rtmp", "key"), values)
+                if not isinstance(value, str) or not value
+            )
+            LOGGER.warning(
+                "Streamlabs start response missing required fields: %s",
+                missing or "unknown",
+            )
             raise EndpointChangedError("La respuesta de inicio de Streamlabs cambió.")
 
         return StreamSession(session_id, rtmp_url, stream_key)
@@ -231,4 +341,8 @@ class StreamlabsTikTokClient:
             f"/stream/{quote(session_id, safe='')}/end",
         )
         if payload.get("success") is not True:
+            LOGGER.warning(
+                "Streamlabs end response did not confirm success (success_type=%s)",
+                type(payload.get("success")).__name__,
+            )
             raise StreamlabsError("Streamlabs no confirmó el cierre de la sesión.")

@@ -67,7 +67,8 @@ def test_search_uses_params_caps_query_and_adds_other():
     assert session.calls[0][2]["params"] == {"category": "x" * 25}
 
 
-def test_account_info_and_stream_lifecycle_are_typed():
+def test_account_info_and_stream_lifecycle_are_typed(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
     client, session = make_client(
         [
             FakeResponse(
@@ -93,6 +94,61 @@ def test_account_info_and_stream_lifecycle_are_typed():
     )
     assert session.calls[1][0] == "POST"
     assert session.calls[2][1].endswith("/session-1/end")
+    assert "GET /info -> HTTP 200" in caplog.text
+    assert "POST /stream/start -> HTTP 200" in caplog.text
+    assert "POST /stream/<session>/end -> HTTP 200" in caplog.text
+    assert "response fields: POST /stream/start -> id,key,rtmp" in caplog.text
+    assert "session-1" not in caplog.text
+    assert "key-1" not in caplog.text
+
+
+def test_request_logs_http_status_and_never_logs_secrets(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {"id": "session-1", "rtmp": "rtmp://server", "key": "STREAMKEY-SECRET"}
+            )
+        ]
+    )
+
+    client.start_stream("Title", "42")
+
+    assert "HTTP 200" in caplog.text
+    assert "STREAMKEY-SECRET" not in caplog.text
+    assert "Title" not in caplog.text
+
+
+def test_http_failure_is_logged_with_status(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, _ = make_client([FakeResponse({}, status_code=500)])
+
+    with pytest.raises(StreamlabsError):
+        client.get_account_info()
+
+    assert "GET /info -> HTTP 500" in caplog.text
+
+
+def test_start_response_logs_missing_fields_without_values(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, _ = make_client([FakeResponse({"id": "session-1", "rtmp": "rtmp://server"})])
+
+    with pytest.raises(EndpointChangedError):
+        client.start_stream("Title", "42")
+
+    assert "missing required fields: key" in caplog.text
+    assert "session-1" not in caplog.text
+
+
+def test_end_response_logs_confirmation_type(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, _ = make_client([FakeResponse({"success": False})])
+
+    with pytest.raises(StreamlabsError):
+        client.end_stream("session-1")
+
+    assert "did not confirm success" in caplog.text
+    assert "False" not in caplog.text
 
 
 @pytest.mark.parametrize(

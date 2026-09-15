@@ -107,6 +107,10 @@ la dejas abierta, TikTok puede rechazar el siguiente directo).
 | macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
 | Necesitas ayuda | Pulsa **Registros** y adjunta `app.log`: no contiene tokens ni claves. |
 
+El registro identifica cada operación, endpoint, código HTTP, duración y campos
+ausentes cuando una respuesta cambia. No guarda títulos, tokens, claves,
+respuestas completas ni identificadores de sesión.
+
 ---
 
 ## 💻 Desde el código fuente

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import secrets
 import threading
 import time
@@ -14,6 +15,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TokenRetrievalError(RuntimeError):
@@ -205,6 +209,8 @@ class TokenRetriever:
             "code": code,
         }
 
+        LOGGER.info("Streamlabs web login exchange started")
+        started = time.monotonic()
         try:
             response = self._http_get(
                 self.STREAMLABS_API_URL,
@@ -213,11 +219,29 @@ class TokenRetriever:
                 timeout=(10, 30),
             )
         except requests.Timeout as exc:
+            LOGGER.warning(
+                "Streamlabs web login exchange timed out after %.0f ms",
+                (time.monotonic() - started) * 1000,
+            )
             raise TokenRetrievalError("Streamlabs tardó demasiado en validar el login.") from exc
         except requests.RequestException as exc:
+            LOGGER.warning(
+                "Streamlabs web login exchange failed: %s after %.0f ms",
+                type(exc).__name__,
+                (time.monotonic() - started) * 1000,
+            )
             raise TokenRetrievalError("No se pudo validar el login con Streamlabs.") from exc
 
+        LOGGER.info(
+            "Streamlabs web login exchange response: HTTP %s in %.0f ms",
+            response.status_code,
+            (time.monotonic() - started) * 1000,
+        )
         if response.status_code != 200:
+            LOGGER.warning(
+                "Streamlabs web login exchange rejected: HTTP %s",
+                response.status_code,
+            )
             raise TokenRetrievalError(
                 f"Streamlabs rechazó el intercambio del login (HTTP {response.status_code})."
             )
@@ -225,15 +249,28 @@ class TokenRetriever:
         try:
             data = response.json()
         except (ValueError, requests.exceptions.JSONDecodeError) as exc:
+            LOGGER.warning("Streamlabs web login exchange returned invalid JSON")
             raise TokenRetrievalError(
                 "Streamlabs devolvió una respuesta inválida durante el login."
             ) from exc
 
         if not isinstance(data, dict) or data.get("success") is not True:
+            if not isinstance(data, dict):
+                success_detail = "<non-object>"
+            elif isinstance(data.get("success"), bool):
+                success_detail = str(data["success"])
+            else:
+                success_detail = type(data.get("success")).__name__
+            LOGGER.warning(
+                "Streamlabs web login exchange returned success=%s",
+                success_detail,
+            )
             raise TokenRetrievalError("Streamlabs no pudo completar el login.")
 
         token_data = data.get("data")
         token = token_data.get("oauth_token") if isinstance(token_data, dict) else None
         if not isinstance(token, str) or not token.strip():
+            LOGGER.warning("Streamlabs web login exchange returned no oauth token")
             raise TokenRetrievalError("Streamlabs no devolvió un token válido.")
+        LOGGER.info("Streamlabs web login exchange completed")
         return token.strip()

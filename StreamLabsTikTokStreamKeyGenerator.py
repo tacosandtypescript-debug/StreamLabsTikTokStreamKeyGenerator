@@ -518,7 +518,13 @@ class StreamApp(QMainWindow):
                 f"{safe_error_message(exc)}\n\nSe ha descartado el registro.",
             )
 
-        self._run_worker(work, done, failed, lambda: self._set_operation_busy("end", False))
+        self._run_worker(
+            work,
+            done,
+            failed,
+            lambda: self._set_operation_busy("end", False),
+            operation="pending-session-close",
+        )
 
     def _apply_config(self, config: AppConfig) -> None:
         self._loading_config = True
@@ -546,7 +552,7 @@ class StreamApp(QMainWindow):
         try:
             self.config_store.save(config)
         except ConfigError as exc:
-            LOGGER.debug("Configuration save failed", exc_info=True)
+            LOGGER.warning("Configuration save failed: %s", type(exc).__name__)
             QMessageBox.critical(self, "Error de configuración", str(exc))
             return False
 
@@ -625,6 +631,7 @@ class StreamApp(QMainWindow):
             lambda info: self._account_loaded(token, info),
             lambda exc: self._account_failed(token, exc, silent),
             lambda: self._set_operation_busy("account", False),
+            operation="account-validation",
         )
 
     def _account_loaded(self, token: str, info: AccountInfo) -> None:
@@ -673,6 +680,7 @@ class StreamApp(QMainWindow):
                 self._set_operation_busy("local", False),
                 self.load_local_btn.setText("Cargar desde el PC"),
             ),
+            operation="token-local",
         )
 
     @staticmethod
@@ -715,6 +723,7 @@ class StreamApp(QMainWindow):
                 safe_error_message(exc),
             ),
             finished,
+            operation="token-web",
         )
 
     def _apply_retrieved_token(self, token: str) -> None:
@@ -777,6 +786,7 @@ class StreamApp(QMainWindow):
             lambda result: self._categories_loaded(result, show_suggestions),
             lambda exc: self._category_search_failed(serial, exc),
             lambda: self._set_operation_busy(operation, False),
+            operation=f"category-search-{serial}",
         )
 
     def _categories_loaded(
@@ -852,6 +862,7 @@ class StreamApp(QMainWindow):
                 safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("start", False),
+            operation="stream-start",
         )
 
     def _stream_started(self, session: StreamSession) -> None:
@@ -865,7 +876,7 @@ class StreamApp(QMainWindow):
         )
         self._session_prompted = True
         self.save_config(False)
-        LOGGER.info("Streamlabs session started (id=%s)", session.session_id)
+        LOGGER.info("Streamlabs session started")
         self.stream_url.setText(session.rtmp_url)
         self.stream_key.setText(session.stream_key)
         self._set_status("Sesión preparada; configura OBS")
@@ -896,6 +907,7 @@ class StreamApp(QMainWindow):
                 safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("end", False),
+            operation="stream-end",
         )
 
     def _stream_ended(self, _: Any = None) -> None:
@@ -1046,10 +1058,13 @@ class StreamApp(QMainWindow):
         on_error: Callable[[Exception], None] | None = None,
         on_finished: Callable[[], None] | None = None,
         *,
+        operation: str | None = None,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> None:
         worker = Worker(function)
         self._workers.add(worker)
+        operation_name = operation or getattr(function, "__name__", "background-operation")
+        LOGGER.info("Background operation started: %s", operation_name)
         # A queued connection is required here: these callbacks are plain
         # functions and lambdas with no thread affinity, so Qt would otherwise
         # invoke them directly on the worker thread and touch the GUI from it.
@@ -1076,10 +1091,20 @@ class StreamApp(QMainWindow):
             # signal: the dialog is only ever touched from the GUI thread.
             worker.kwargs["progress"] = worker.signals.progress.emit
             worker.signals.progress.connect(guard(on_progress), queued)
-        worker.signals.result.connect(guard(on_result), queued)
+
+        def handle_result(*args: Any) -> None:
+            LOGGER.info("Background operation completed: %s", operation_name)
+            on_result(*args)
+
+        worker.signals.result.connect(guard(handle_result), queued)
 
         def handle_error(exc: Exception) -> None:
-            LOGGER.debug("Background operation failed: %s", type(exc).__name__)
+            LOGGER.warning(
+                "Background operation failed: %s (%s): %s",
+                operation_name,
+                type(exc).__name__,
+                safe_error_message(exc),
+            )
             if on_error:
                 on_error(exc)
             else:
@@ -1185,6 +1210,7 @@ class StreamApp(QMainWindow):
             VersionChecker.check_update,
             self._show_update_if_available,
             lambda exc: LOGGER.debug("Update check failed: %s", type(exc).__name__),
+            operation="update-check",
         )
 
     def _show_update_if_available(self, update_info: dict[str, Any] | None) -> None:
@@ -1300,6 +1326,7 @@ class StreamApp(QMainWindow):
             failed,
             lambda: self._set_operation_busy("download", False),
             on_progress=report,
+            operation="update-download",
         )
 
     def open_logs_folder(self) -> None:
