@@ -15,7 +15,13 @@ class WorkerSignals(QObject):
 
 
 class Worker(QRunnable):
-    """Run a callable in QThreadPool and emit results on the GUI thread."""
+    """Run a callable in QThreadPool and emit results on the GUI thread.
+
+    Callers that connect plain functions or lambdas must pass
+    ``Qt.ConnectionType.QueuedConnection``: with no receiver QObject, Qt
+    invokes such slots directly on the worker thread, which would touch the
+    GUI from outside the main thread.
+    """
 
     def __init__(self, function: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
         super().__init__()

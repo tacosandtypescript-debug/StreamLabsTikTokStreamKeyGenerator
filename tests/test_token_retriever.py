@@ -1,3 +1,5 @@
+import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -102,3 +104,28 @@ def test_retrieve_token_completes_through_validated_callback():
     )
 
     assert retriever.retrieve_token(timeout=2) == "token-from-web"
+
+
+def test_timeout_returns_none_and_releases_the_callback_server():
+    retriever = TokenRetriever(browser_opener=lambda _url: True)
+
+    started = time.monotonic()
+    result = retriever.retrieve_token(timeout=1)
+
+    assert result is None
+    assert time.monotonic() - started < 10
+
+
+def test_cancel_stops_a_pending_retrieval_early():
+    retriever = TokenRetriever(browser_opener=lambda _url: True)
+
+    def cancel_soon():
+        time.sleep(0.1)
+        retriever.cancel()
+
+    threading.Thread(target=cancel_soon, daemon=True).start()
+    started = time.monotonic()
+    result = retriever.retrieve_token(timeout=30)
+
+    assert result is None
+    assert time.monotonic() - started < 10

@@ -1,3 +1,7 @@
+# Tool configuration only. This project is a desktop application that is
+# distributed as a Nuitka binary and run from the repository root, not an
+# installable Python package.
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
@@ -9,3 +13,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest.importorskip() must run before the module it guards is imported.
+"tests/test_application_helpers.py" = ["E402"]

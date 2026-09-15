@@ -17,36 +17,10 @@ permissions:
   contents: read
 
 jobs:
+  # Single source of truth for the test matrix: the release cannot start
+  # unless the reusable Tests workflow succeeds.
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Compile source
-        run: python -m compileall -q .
-
-      - name: Lint
-        run: ruff check .
-
-      - name: Run tests
-        run: pytest
-
-      - name: Audit dependencies
-        run: pip-audit -r requirements.txt
+    uses: ./.github/workflows/test.yml
 
   create-tag:
     needs: test
@@ -76,16 +50,9 @@ jobs:
   build_windows:
     runs-on: windows-latest
     needs: [create-tag, test]
-    strategy:
-      matrix:
-        build_type: [Release, Debug]
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set Release variable
-        run: |
-          echo "RELEASE=${{ matrix.build_type }}" >> $env:GITHUB_ENV
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -95,74 +62,48 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if (Test-Path requirements-build.txt) {
-            pip install -r requirements-build.txt
-          }
+          pip install -r requirements-build.txt
           "__version__ = '${{ github.event.inputs.version }}'" | Out-File -FilePath _version.py -Encoding utf8
 
       - name: Build Executable
         run: |
-          Write-Host "Release variable is set to: $env:Release"
-          if ($env:Release -eq 'Release') {
-            nuitka `
-            --assume-yes-for-downloads `
-            --show-scons `
-            --clang `
-            --lto=yes `
-            --jobs=4 `
-            --static-libpython=no `
-            --standalone `
-            --enable-plugin=anti-bloat `
-            --show-modules `
-            --show-anti-bloat-changes `
-            --follow-stdlib `
-            --follow-imports `
-            --nofollow-import-to="*.tests" `
-            --nofollow-import-to="pydoc" `
-            --nofollow-import-to="test" `
-            --prefer-source-code `
-            --include-module=unittest `
-            --include-package=keyring.backends `
-            --windows-console-mode=disable `
-            --enable-plugin=pyside6 `
-            --windows-company-name="Loukious" `
-            --windows-product-name="StreamLabs TikTok Stream Key Generator" `
-            --windows-file-version="${{ github.event.inputs.version }}" `
-            --windows-product-version="${{ github.event.inputs.version }}" `
-            --windows-file-description="StreamLabs TikTok Stream Key Generator" `
-            --copyright="Copyright © 2026 Loukious" `
-            StreamLabsTikTokStreamKeyGenerator.py
-          } else {
-            nuitka `
-            --assume-yes-for-downloads `
-            --show-scons `
-            --clang `
-            --lto=yes `
-            --jobs=4 `
-            --static-libpython=no `
-            --standalone `
-            --enable-plugin=anti-bloat `
-            --show-modules `
-            --show-anti-bloat-changes `
-            --follow-stdlib `
-            --follow-imports `
-            --nofollow-import-to="*.tests" `
-            --nofollow-import-to="pydoc" `
-            --nofollow-import-to="test" `
-            --prefer-source-code `
-            --include-module=unittest `
-            --include-package=keyring.backends `
-            --enable-plugin=pyside6 `
-            StreamLabsTikTokStreamKeyGenerator.py
-          }
+          nuitka `
+          --assume-yes-for-downloads `
+          --show-scons `
+          --clang `
+          --lto=yes `
+          --jobs=4 `
+          --static-libpython=no `
+          --standalone `
+          --enable-plugin=anti-bloat `
+          --show-modules `
+          --show-anti-bloat-changes `
+          --follow-stdlib `
+          --follow-imports `
+          --nofollow-import-to="*.tests" `
+          --nofollow-import-to="pydoc" `
+          --nofollow-import-to="test" `
+          --prefer-source-code `
+          --include-module=unittest `
+          --include-package=keyring.backends `
+          --include-package=win32ctypes `
+          --windows-console-mode=disable `
+          --enable-plugin=pyside6 `
+          --windows-company-name="Loukious" `
+          --windows-product-name="StreamLabs TikTok Stream Key Generator" `
+          --windows-file-version="${{ github.event.inputs.version }}" `
+          --windows-product-version="${{ github.event.inputs.version }}" `
+          --windows-file-description="StreamLabs TikTok Stream Key Generator" `
+          --copyright="Copyright © 2026 Loukious" `
+          StreamLabsTikTokStreamKeyGenerator.py
 
       - name: Compress Executable
-        run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator${{ matrix.build_type }}-win-${{ github.event.inputs.version }}.zip
+        run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator-win-${{ github.event.inputs.version }}.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.build_type }}
+          name: windows
           path: |
             *.zip
 
@@ -172,7 +113,6 @@ jobs:
     strategy:
       matrix:
         architecture: [x86_64, arm64]
-        build_type: [Release]
 
     steps:
       - uses: actions/checkout@v4
@@ -185,7 +125,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
+          pip install -r requirements-build.txt
           echo "__version__ = '${{ github.event.inputs.version }}'" > _version.py
 
       - name: Build Executable
@@ -222,9 +162,6 @@ jobs:
   build_linux:
     runs-on: ubuntu-22.04
     needs: [create-tag, test]
-    strategy:
-      matrix:
-        build_type: [Release]
 
     steps:
       - uses: actions/checkout@v4
@@ -234,7 +171,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ccache python3-pip zip python3-distutils
           python3 -m pip install --upgrade pip
-          if [ -f requirements-build.txt ]; then pip3 install -r requirements-build.txt; fi
+          pip3 install -r requirements-build.txt
           echo "__version__ = '${{ github.event.inputs.version }}'" > _version.py
 
       - name: Build Executable
@@ -250,6 +187,8 @@ jobs:
           --enable-plugin=anti-bloat \
           --enable-plugin=pyside6 \
           --include-package=keyring.backends \
+          --include-package=secretstorage \
+          --include-package=jeepney \
           --show-modules \
           --show-anti-bloat-changes \
           --follow-stdlib \
@@ -263,7 +202,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-
+          name: linux
           path: |
             *.zip
 
@@ -282,6 +221,13 @@ jobs:
         with:
           path: artifacts/
 
+      # The README tells users to verify a checksum, so one has to exist.
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          find . -type f -name '*.zip' -print0 | sort -z | xargs -0 sha256sum | sed 's|\./||' > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+
       - name: Create the release
         uses: softprops/action-gh-release@v2
         env:
@@ -289,4 +235,6 @@ jobs:
         with:
           tag_name: "v${{ github.event.inputs.version }}"
           body: ${{ github.event.inputs.changelog }}
-          files: "artifacts/**/*.zip"
+          files: |
+            artifacts/**/*.zip
+            SHA256SUMS.txt

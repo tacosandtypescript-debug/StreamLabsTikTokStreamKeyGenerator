@@ -67,6 +67,8 @@ class StreamApp(QMainWindow):
         self.suppress_donation_reminder = False
         self._loading_config = False
         self._secure_store_available = True
+        self._legacy_migration_declined = False
+        self._online_retriever: TokenRetriever | None = None
         self._pending_legacy: tuple[Path, ConfigLoadResult] | None = None
         self._account_info: AccountInfo | None = None
         self._validated_token: str | None = None
@@ -306,12 +308,13 @@ class StreamApp(QMainWindow):
         self.config = result.config
         self._apply_config(result.config)
 
-        # Versions before v2 stored config.json in the current directory.
+        # Files written by older versions may still hold a plaintext token, so
+        # they are inspected even when a current configuration already exists.
         legacy_path = Path.cwd() / "config.json"
         if (
-            not self.config_store.path.exists()
-            and legacy_path.exists()
+            legacy_path.exists()
             and legacy_path.resolve() != self.config_store.path.resolve()
+            and not self._legacy_migration_declined
         ):
             try:
                 legacy_result = read_config_file(legacy_path)
@@ -319,6 +322,13 @@ class StreamApp(QMainWindow):
                 legacy_result = None
             if legacy_result and legacy_result.had_legacy_token:
                 self._pending_legacy = (legacy_path, legacy_result)
+
+        if result.needs_upgrade:
+            # Preferences only; rewriting can never touch a token.
+            try:
+                self.config_store.save(result.config)
+            except ConfigError:
+                LOGGER.debug("Configuration upgrade could not be persisted", exc_info=True)
 
         try:
             token = self.token_store.get_token()
@@ -346,6 +356,7 @@ class StreamApp(QMainWindow):
             self.game_category.setText(config.game)
             self.mature_checkbox.setChecked(config.audience_type == "1")
             self.suppress_donation_reminder = config.suppress_donation_reminder
+            self._legacy_migration_declined = config.legacy_migration_declined
         finally:
             self._loading_config = False
 
@@ -355,6 +366,7 @@ class StreamApp(QMainWindow):
             game=self.game_category.text().strip(),
             audience_type="1" if self.mature_checkbox.isChecked() else "0",
             suppress_donation_reminder=self.suppress_donation_reminder,
+            legacy_migration_declined=self._legacy_migration_declined,
         )
 
     def save_config(self, show_message: bool = True) -> bool:
@@ -546,11 +558,19 @@ class StreamApp(QMainWindow):
         self._set_operation_busy("online", True)
         self.load_online_btn.setText("Waiting for login…")
 
+        retriever = TokenRetriever()
+        self._online_retriever = retriever
+
         def work() -> str:
-            token = TokenRetriever().retrieve_token()
+            token = retriever.retrieve_token()
             if not token:
                 raise TokenRetrievalError("No se pudo obtener un token mediante el login web.")
             return token
+
+        def finished() -> None:
+            self._online_retriever = None
+            self._set_operation_busy("online", False)
+            self.load_online_btn.setText("Load from Web")
 
         self._run_worker(
             work,
@@ -560,10 +580,7 @@ class StreamApp(QMainWindow):
                 "Web login",
                 self._safe_error_message(exc),
             ),
-            lambda: (
-                self._set_operation_busy("online", False),
-                self.load_online_btn.setText("Load from Web"),
-            ),
+            finished,
         )
 
     def _apply_retrieved_token(self, token: str) -> None:
@@ -612,7 +629,10 @@ class StreamApp(QMainWindow):
         token = self._validated_token
         if not token:
             return
-        self._set_operation_busy("search", True)
+        # A unique key per search keeps an older, slower request from clearing
+        # the busy flag of the newer one.
+        operation = f"search-{serial}"
+        self._set_operation_busy(operation, True)
 
         def work() -> tuple[str, int, list[Category]]:
             categories = StreamlabsTikTokClient(token).search_categories(query)
@@ -622,7 +642,7 @@ class StreamApp(QMainWindow):
             work,
             lambda result: self._categories_loaded(result, show_suggestions),
             lambda exc: self._category_search_failed(serial, exc),
-            lambda: self._set_operation_busy("search", False),
+            lambda: self._set_operation_busy(operation, False),
         )
 
     def _categories_loaded(
@@ -773,30 +793,77 @@ class StreamApp(QMainWindow):
         if not self._pending_legacy:
             return
         legacy_path, result = self._pending_legacy
+        self._pending_legacy = None
         token = result.legacy_token
         if not token:
             return
 
-        answer = QMessageBox.question(
-            self,
-            "Migrate token",
-            "Se encontró un token antiguo guardado en texto plano. "
-            "¿Quieres importarlo al almacén seguro del sistema?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("Migrate token")
+        message.setText(
+            "Se encontró un token antiguo guardado en texto plano en:\n"
+            f"{legacy_path}\n\n"
+            "Cualquier programa puede leer ese fichero. ¿Qué quieres hacer?"
         )
-        if answer == QMessageBox.StandardButton.Yes:
-            try:
-                self.token_store.save_token(token)
-                self._secure_store_available = True
-                ConfigStore.migrate_legacy_file(legacy_path, result.config)
-                self.config_store.save(result.config)
-            except (TokenStoreUnavailable, ConfigError) as exc:
-                QMessageBox.warning(self, "Migration", self._safe_error_message(exc))
+        import_btn = message.addButton(
+            "Importar al almacén seguro", QMessageBox.ButtonRole.AcceptRole
+        )
+        delete_btn = message.addButton(
+            "Borrar el fichero antiguo", QMessageBox.ButtonRole.DestructiveRole
+        )
+        message.addButton("Ahora no", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(import_btn)
+        message.exec()
+        clicked = message.clickedButton()
+
+        if clicked is delete_btn:
+            self._delete_legacy_file(legacy_path)
+            self.token_entry.clear()
+            self._set_status("Token antiguo eliminado")
+            return
+
+        if clicked is not import_btn:
+            # "Ahora no", Escape, or closing the dialog: a plaintext token is
+            # never loaded unless the user explicitly asked for it, and the
+            # decision is remembered so the prompt does not come back.
+            self._remember_declined_migration()
+            self._set_status("Token antiguo no importado")
+            return
+
+        try:
+            self.token_store.save_token(token)
+            self._secure_store_available = True
+        except TokenStoreUnavailable as exc:
+            QMessageBox.warning(self, "Migration", self._safe_error_message(exc))
+            self._remember_declined_migration()
+        else:
+            self._rewrite_legacy_without_token(legacy_path, result.config)
+            self.save_config(False)
 
         self._set_token(token)
-        self._pending_legacy = None
         self.refresh_account_info(silent=True)
+
+    def _remember_declined_migration(self) -> None:
+        self._legacy_migration_declined = True
+        self.save_config(False)
+
+    def _rewrite_legacy_without_token(self, legacy_path: Path, config: AppConfig) -> None:
+        try:
+            ConfigStore.migrate_legacy_file(legacy_path, config)
+        except ConfigError:
+            LOGGER.warning("Could not rewrite the legacy configuration file")
+
+    def _delete_legacy_file(self, legacy_path: Path) -> None:
+        try:
+            legacy_path.unlink(missing_ok=True)
+        except OSError:
+            LOGGER.warning("Could not delete the legacy configuration file")
+            QMessageBox.warning(
+                self,
+                "Migration",
+                "No se pudo borrar el fichero antiguo. Elimínalo manualmente.",
+            )
 
     def _run_worker(
         self,
@@ -806,7 +873,11 @@ class StreamApp(QMainWindow):
         on_finished: Callable[[], None] | None = None,
     ) -> None:
         worker = Worker(function)
-        worker.signals.result.connect(on_result)
+        # A queued connection is required here: these callbacks are plain
+        # functions and lambdas with no thread affinity, so Qt would otherwise
+        # invoke them directly on the worker thread and touch the GUI from it.
+        queued = Qt.ConnectionType.QueuedConnection
+        worker.signals.result.connect(on_result, queued)
 
         def handle_error(exc: Exception) -> None:
             LOGGER.debug("Background operation failed: %s", type(exc).__name__)
@@ -815,9 +886,9 @@ class StreamApp(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", self._safe_error_message(exc))
 
-        worker.signals.error.connect(handle_error)
+        worker.signals.error.connect(handle_error, queued)
         if on_finished:
-            worker.signals.finished.connect(on_finished)
+            worker.signals.finished.connect(on_finished, queued)
         self.thread_pool.start(worker)
 
     def _set_operation_busy(self, operation: str, busy: bool) -> None:
@@ -848,6 +919,7 @@ class StreamApp(QMainWindow):
         self.refresh_btn.setEnabled(not account_busy and not token_busy)
         self.load_local_btn.setEnabled(not token_busy and not account_busy)
         self.load_online_btn.setEnabled(not token_busy and not account_busy)
+        self.save_token_btn.setEnabled(bool(self._validated_token))
 
     def _can_start_stream(self) -> bool:
         if self._active_session or self._busy_operations & {"start", "end", "account"}:
@@ -961,12 +1033,20 @@ class StreamApp(QMainWindow):
                 "Active session",
                 "La sesión de Streamlabs sigue activa. Comprueba OBS antes de cerrar.",
             )
+        # A pending browser login would otherwise keep a pool thread waiting for
+        # up to five minutes and delay process shutdown.
+        if self._online_retriever is not None:
+            self._online_retriever.cancel()
+        self.thread_pool.clear()
         self._clear_sensitive_clipboard()
         event.accept()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(
+        level=os.environ.get("STREAMLABS_KEYGEN_LOG_LEVEL", "WARNING").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     app = QApplication(sys.argv)
     window = StreamApp()
     window.show()

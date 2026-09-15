@@ -12,6 +12,9 @@ from typing import Any
 SERVICE_NAME = "StreamLabsTikTokStreamKeyGenerator"
 ACCOUNT_NAME = "oauth_token"
 
+# keyring silently falls back to a no-op backend when no usable one exists.
+UNAVAILABLE_BACKEND_MODULES = frozenset({"keyring.backends.fail", "keyring.backends.null"})
+
 
 class TokenStoreError(RuntimeError):
     """Base class for token-store failures."""
@@ -53,7 +56,7 @@ class SecureTokenStore:
         try:
             keyring_backend = self._backend.get_keyring()
             module_name = type(keyring_backend).__module__
-            if module_name == "keyring.backends.fail":
+            if module_name in UNAVAILABLE_BACKEND_MODULES:
                 raise TokenStoreUnavailable(
                     "El sistema no tiene configurado un almacén seguro disponible."
                 )
@@ -106,9 +109,23 @@ class SecureTokenStore:
         try:
             backend.delete_password(self.service_name, self.account_name)
         except Exception as exc:
-            error_name = type(exc).__name__
-            if error_name in {"PasswordDeleteError", "ItemNotFoundException"}:
+            if self._is_missing_entry_error(exc):
                 return
             raise TokenStoreUnavailable(
                 "No se pudo eliminar el token del almacén seguro."
             ) from exc
+
+    @staticmethod
+    def _is_missing_entry_error(exc: Exception) -> bool:
+        """Return True when deleting only failed because nothing was stored."""
+
+        try:
+            from keyring import errors
+
+            if isinstance(exc, errors.PasswordDeleteError):
+                return True
+        except ImportError:  # pragma: no cover - keyring is a declared dependency
+            pass
+        # Backends without a dedicated error type, and test doubles, fall back
+        # to matching the exception class name.
+        return type(exc).__name__ in {"PasswordDeleteError", "ItemNotFoundException"}

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import secrets
 import threading
+import time
 import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -38,6 +39,7 @@ class TokenRetriever:
         self._auth_code: str | None = None
         self._callback_error: str | None = None
         self._server_event = threading.Event()
+        self._cancelled = threading.Event()
         self._browser_opener = browser_opener or webbrowser.open
         self._http_get = http_get or requests.get
 
@@ -152,8 +154,7 @@ class TokenRetriever:
                     "No se pudo abrir el navegador para iniciar sesión."
                 )
 
-            completed = self._server_event.wait(timeout=timeout)
-            if not completed:
+            if not self._wait_for_callback(timeout):
                 return None
             if self._callback_error:
                 return None
@@ -163,6 +164,28 @@ class TokenRetriever:
         finally:
             server.shutdown()
             server.server_close()
+
+    def cancel(self) -> None:
+        """Ask a pending ``retrieve_token`` call to stop waiting."""
+
+        self._cancelled.set()
+        self._server_event.set()
+
+    def _wait_for_callback(self, timeout: int) -> bool:
+        """Wait for the callback or for cancellation, whichever comes first.
+
+        Waiting in short slices keeps a cancelled login from blocking process
+        shutdown while the application is closing.
+        """
+
+        deadline = time.monotonic() + timeout
+        while not self._cancelled.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if self._server_event.wait(min(remaining, 0.25)):
+                return True
+        return False
 
     def _exchange_code_for_token(self, code: str) -> str | None:
         """Exchange the short-lived authorization code without logging secrets."""

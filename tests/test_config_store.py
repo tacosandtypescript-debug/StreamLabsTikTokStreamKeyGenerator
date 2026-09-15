@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from config_store import AppConfig, ConfigError, ConfigStore, read_config_file
+from config_store import (
+    CURRENT_SCHEMA_VERSION,
+    LEGACY_SCHEMA_VERSION,
+    AppConfig,
+    ConfigError,
+    ConfigStore,
+    read_config_file,
+)
 
 
 def test_save_writes_only_non_secret_preferences(tmp_path):
@@ -11,7 +18,7 @@ def test_save_writes_only_non_secret_preferences(tmp_path):
     store.save(AppConfig(title="Test", game="Fortnite", audience_type="1"))
 
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["title"] == "Test"
     assert "token" not in data
 
@@ -64,4 +71,52 @@ def test_migrate_legacy_file_removes_token(tmp_path):
 
     data = json.loads(path.read_text(encoding="utf-8"))
     assert "token" not in data
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+
+
+def test_file_without_schema_version_is_treated_as_legacy(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"title": "Old"}), encoding="utf-8")
+
+    result = read_config_file(path)
+
+    assert result.source_schema_version == LEGACY_SCHEMA_VERSION
+    assert result.needs_upgrade is True
+    assert result.config.title == "Old"
+    assert result.config.schema_version == CURRENT_SCHEMA_VERSION
+
+
+def test_current_schema_file_needs_no_upgrade(tmp_path):
+    path = tmp_path / "config.json"
+    ConfigStore(path).save(AppConfig(title="Test"))
+
+    result = read_config_file(path)
+
+    assert result.source_schema_version == CURRENT_SCHEMA_VERSION
+    assert result.needs_upgrade is False
+
+
+def test_newer_schema_is_refused_instead_of_overwritten(tmp_path):
+    path = tmp_path / "config.json"
+    original = json.dumps({"schema_version": CURRENT_SCHEMA_VERSION + 1, "title": "Future"})
+    path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        read_config_file(path)
+
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_non_integer_schema_version_is_refused(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"schema_version": "two"}), encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        read_config_file(path)
+
+
+def test_declined_migration_preference_round_trips(tmp_path):
+    path = tmp_path / "config.json"
+    ConfigStore(path).save(AppConfig(legacy_migration_declined=True))
+
+    assert read_config_file(path).config.legacy_migration_declined is True

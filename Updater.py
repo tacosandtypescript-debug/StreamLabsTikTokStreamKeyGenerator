@@ -9,13 +9,24 @@ from packaging import version
 
 from version import __version__
 
+# A source checkout reports a development version, which has nothing
+# meaningful to compare against.
+DEV_VERSION_SUFFIX = "-dev"
+
 
 class VersionChecker:
-    REPO = "Loukious/StreamLabsTikTokStreamKeyGenerator"
+    # This must be the repository that publishes the releases downloaded by the
+    # users of this application, not the upstream project it derives from.
+    REPO = "tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator"
     API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 
     @classmethod
     def check_update(cls, http_get: Any = requests.get) -> dict[str, str] | None:
+        current = __version__.lstrip("v")
+        if current.endswith(DEV_VERSION_SUFFIX):
+            # Never nag the user from a development build.
+            return None
+
         try:
             response = http_get(
                 cls.API_URL,
@@ -32,7 +43,7 @@ class VersionChecker:
             if not isinstance(latest, str) or not isinstance(release_url, str):
                 return None
             latest = latest.lstrip("v")
-            if version.parse(latest) <= version.parse(__version__.lstrip("v")):
+            if version.parse(latest) <= version.parse(current):
                 return None
             return {
                 "current": __version__,
