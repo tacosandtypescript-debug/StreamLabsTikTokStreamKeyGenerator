@@ -10,7 +10,7 @@ from PySide6.QtGui import QCloseEvent
 import StreamLabsTikTokStreamKeyGenerator as application
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
-from streamlabs_client import AccountInfo, StreamSession
+from streamlabs_client import AccountInfo, StreamSession, StreamlabsError
 
 
 class FakeBackend:
@@ -191,6 +191,18 @@ def test_ending_a_session_clears_the_record(app, store):
     app._stream_ended()
 
     assert read_config_file(store.path).config.active_session is None
+
+
+def test_failed_ending_keeps_session_available_for_retry(app):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._session_record = ActiveSession("session-1", "Title")
+
+    app._stream_end_failed(StreamlabsError("hidden", status_code=503))
+
+    assert app._active_session is not None
+    assert app._session_record is not None
+    assert "reintentarlo" in app.app_status.text()
 
 
 def test_leftover_session_can_be_forgotten(app, store):

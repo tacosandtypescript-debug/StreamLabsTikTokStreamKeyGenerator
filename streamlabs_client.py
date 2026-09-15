@@ -30,6 +30,7 @@ def _response_fields(payload: dict[str, Any]) -> str:
 
 STREAMLABS_TIKTOK_BASE_URL = "https://streamlabs.com/api/v5/slobs/tiktok"
 STREAMLABS_AUTH_DATA_URL = "https://streamlabs.com/api/v5/slobs/auth/data"
+END_STREAM_RETRY_DELAYS = (1.0, 2.0)
 STREAMLABS_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -40,6 +41,10 @@ STREAMLABS_USER_AGENT = (
 
 class StreamlabsError(RuntimeError):
     """Base class for safe, user-facing Streamlabs errors."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class AuthenticationError(StreamlabsError):
@@ -119,6 +124,7 @@ class StreamlabsTikTokClient:
         *,
         params: dict[str, str] | None = None,
         files: Iterable[tuple[str, tuple[None, str]]] | None = None,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         safe_path = _safe_request_path(path)
@@ -186,20 +192,29 @@ class StreamlabsTikTokClient:
                     method.upper(),
                     safe_path,
                 )
-                raise PermissionError("Streamlabs rechazó el permiso para esta operación.")
+                raise PermissionError(
+                    "Streamlabs rechazó el permiso para esta operación.",
+                    status_code=response.status_code,
+                )
             LOGGER.warning(
                 "Streamlabs request rejected: %s %s -> HTTP 401 (authentication)",
                 method.upper(),
                 safe_path,
             )
-            raise AuthenticationError("El token de Streamlabs no es válido o caducó.")
+            raise AuthenticationError(
+                "El token de Streamlabs no es válido o caducó.",
+                status_code=response.status_code,
+            )
         if response.status_code == 429:
             LOGGER.warning(
                 "Streamlabs request rejected: %s %s -> HTTP 429 (rate limit)",
                 method.upper(),
                 safe_path,
             )
-            raise RateLimitError("Streamlabs limitó temporalmente las peticiones.")
+            raise RateLimitError(
+                "Streamlabs limitó temporalmente las peticiones.",
+                status_code=response.status_code,
+            )
         if response.status_code >= 400:
             LOGGER.warning(
                 "Streamlabs request failed: %s %s -> HTTP %s",
@@ -208,12 +223,28 @@ class StreamlabsTikTokClient:
                 response.status_code,
             )
             raise StreamlabsError(
-                f"Streamlabs devolvió un error HTTP {response.status_code}."
+                f"Streamlabs devolvió un error HTTP {response.status_code}.",
+                status_code=response.status_code,
             )
+
+        if allow_empty and response.status_code == 204:
+            LOGGER.info(
+                "Streamlabs response received: %s %s -> empty success body",
+                method.upper(),
+                safe_path,
+            )
+            return {"success": True}
 
         try:
             payload = response.json()
         except (ValueError, requests.exceptions.JSONDecodeError) as exc:
+            if allow_empty and getattr(response, "content", None) == b"":
+                LOGGER.info(
+                    "Streamlabs response received: %s %s -> empty success body",
+                    method.upper(),
+                    safe_path,
+                )
+                return {"success": True}
             LOGGER.warning(
                 "Streamlabs returned invalid JSON: %s %s (%s)",
                 method.upper(),
@@ -336,13 +367,45 @@ class StreamlabsTikTokClient:
         if not isinstance(session_id, str) or not session_id:
             raise ValueError("No hay una sesión de Streamlabs activa.")
 
-        payload = self._request_json(
-            "POST",
-            f"/stream/{quote(session_id, safe='')}/end",
-        )
-        if payload.get("success") is not True:
+        path = f"/stream/{quote(session_id, safe='')}/end"
+        last_attempt = len(END_STREAM_RETRY_DELAYS) + 1
+        for attempt in range(1, last_attempt + 1):
+            try:
+                payload = self._request_json("POST", path, allow_empty=True)
+            except StreamlabsError as exc:
+                if getattr(exc, "status_code", None) == 404:
+                    # The session is already gone on Streamlabs. Treating this
+                    # as success makes the operation idempotent after a lost
+                    # response or a previous manual shutdown.
+                    LOGGER.info("Streamlabs session was already closed")
+                    return
+                retryable = isinstance(exc, NetworkError) or getattr(
+                    exc, "status_code", None
+                ) in {429, 500, 502, 503, 504}
+                if not retryable or attempt == last_attempt:
+                    raise
+                delay = END_STREAM_RETRY_DELAYS[attempt - 1]
+                LOGGER.warning(
+                    "Streamlabs end request failed; retrying in %.1f s (attempt %s/%s)",
+                    delay,
+                    attempt + 1,
+                    last_attempt,
+                )
+                time.sleep(delay)
+                continue
+
+            success = payload.get("success")
+            if "success" not in payload:
+                # Some responses from this internal endpoint contain no body
+                # or omit the legacy success flag while still returning 2xx.
+                LOGGER.warning(
+                    "Streamlabs end response omitted success; accepting HTTP 2xx"
+                )
+                return
+            if success is True or success in (1, "1", "true", "True"):
+                return
             LOGGER.warning(
                 "Streamlabs end response did not confirm success (success_type=%s)",
-                type(payload.get("success")).__name__,
+                type(success).__name__,
             )
             raise StreamlabsError("Streamlabs no confirmó el cierre de la sesión.")

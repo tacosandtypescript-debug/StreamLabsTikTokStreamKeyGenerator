@@ -151,6 +151,45 @@ def test_end_response_logs_confirmation_type(caplog):
     assert "False" not in caplog.text
 
 
+def test_end_accepts_a_successful_empty_response():
+    client, session = make_client([FakeResponse(None, status_code=204)])
+
+    client.end_stream("session-1")
+
+    assert len(session.calls) == 1
+
+
+def test_end_accepts_a_successful_response_without_legacy_flag():
+    client, _ = make_client([FakeResponse({"message": "closed"})])
+
+    client.end_stream("session-1")
+
+
+def test_end_treats_a_missing_session_as_already_closed(caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, session = make_client([FakeResponse({}, status_code=404)])
+
+    client.end_stream("session-1")
+
+    assert len(session.calls) == 1
+    assert "already closed" in caplog.text
+
+
+def test_end_retries_transient_http_failures(monkeypatch, caplog):
+    caplog.set_level("INFO", logger="streamlabs_client")
+    client, session = make_client(
+        [FakeResponse({}, status_code=503), FakeResponse({"success": True})]
+    )
+    delays = []
+    monkeypatch.setattr(streamlabs_client.time, "sleep", delays.append)
+
+    client.end_stream("session-1")
+
+    assert len(session.calls) == 2
+    assert delays == [1.0]
+    assert "retrying" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [

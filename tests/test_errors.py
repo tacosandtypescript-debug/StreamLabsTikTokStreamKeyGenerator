@@ -42,6 +42,13 @@ def test_the_most_specific_message_wins():
     assert "caducado" in expired_token
 
 
+def test_streamlabs_http_status_is_shown_without_raw_error_text():
+    message = safe_error_message(StreamlabsError("secret response", status_code=503))
+
+    assert "HTTP de Streamlabs: 503" in message
+    assert "secret response" not in message
+
+
 @pytest.mark.parametrize(
     "exc",
     [

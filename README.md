@@ -77,8 +77,9 @@ ejecutes**: vuélvelo a descargar.
 Ajustes → **Emisión** → Servicio: **Personalizado** → pega la **URL del servidor**
 y la **Clave de retransmisión** → Aplicar.
 
-Al terminar, pulsa **Finalizar directo** para cerrar la sesión en Streamlabs (si
-la dejas abierta, TikTok puede rechazar el siguiente directo).
+Al terminar, detén primero la salida de TikTok en OBS y después pulsa
+**Finalizar directo** para cerrar la sesión en Streamlabs (si la dejas abierta,
+TikTok puede rechazar el siguiente directo).
 
 > Si la aplicación se cierra de golpe con un directo preparado, al volver a
 > abrirla te ofrecerá **cerrar esa sesión pendiente**.
@@ -102,6 +103,7 @@ la dejas abierta, TikTok puede rechazar el siguiente directo).
 | **Preparar directo** deshabilitado | Valida la cuenta y elige una categoría de la lista. |
 | «El token ha caducado» | Vuelve a **Iniciar sesión web**. |
 | OBS no conecta | **Finalizar directo** y **Preparar directo** otra vez (las claves caducan). |
+| **Finalizar directo** muestra un error | La app reintenta los fallos temporales y conserva la sesión para volver a pulsarlo. Si la sesión ya había terminado, un `404` se considera cierre correcto. |
 | «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
 | Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
 | macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |

@@ -53,7 +53,7 @@ _SPECIFIC_MESSAGES: tuple[tuple[type[Exception], str], ...] = (
     ),
     (
         StreamlabsError,
-        "Streamlabs devolvió un error. Inténtalo de nuevo en unos minutos.",
+        "Streamlabs devolvió un error. La sesión se conserva para poder reintentarlo.",
     ),
     (
         DownloadError,
@@ -77,6 +77,9 @@ def safe_error_message(exc: Exception) -> str:
 
     for error_type, message in _SPECIFIC_MESSAGES:
         if isinstance(exc, error_type):
+            status_code = getattr(exc, "status_code", None)
+            if status_code is not None:
+                return f"{message}\n\nCódigo HTTP de Streamlabs: {status_code}."
             return message
     if isinstance(exc, _PASSTHROUGH):
         return str(exc)

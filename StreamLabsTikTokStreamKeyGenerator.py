@@ -270,7 +270,9 @@ class StreamApp(QMainWindow):
         button_row.addWidget(self.go_live_btn)
 
         self.end_live_btn = QPushButton("Finalizar directo")
-        self.end_live_btn.setToolTip("Cierra la sesión abierta en Streamlabs")
+        self.end_live_btn.setToolTip(
+            "Detén primero la salida de TikTok en OBS y después cierra la sesión de Streamlabs"
+        )
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.setFixedHeight(32)
         self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
@@ -901,13 +903,19 @@ class StreamApp(QMainWindow):
         self._run_worker(
             work,
             self._stream_ended,
-            lambda exc: QMessageBox.critical(
-                self,
-                "Finalizar directo",
-                safe_error_message(exc),
-            ),
+            self._stream_end_failed,
             lambda: self._set_operation_busy("end", False),
             operation="stream-end",
+        )
+
+    def _stream_end_failed(self, exc: Exception) -> None:
+        self._set_status("No se pudo confirmar el cierre; puedes reintentarlo")
+        QMessageBox.critical(
+            self,
+            "Finalizar directo",
+            f"{safe_error_message(exc)}\n\n"
+            "La sesión se conserva localmente. Pulsa «Finalizar directo» otra vez "
+            "o abre «Registros» si el problema continúa.",
         )
 
     def _stream_ended(self, _: Any = None) -> None:
