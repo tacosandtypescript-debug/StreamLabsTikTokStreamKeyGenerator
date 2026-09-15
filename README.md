@@ -133,59 +133,59 @@ Tienes tres formas. Elige **una**:
 
 | Método | Cuándo usarlo | Qué hace |
 |---|---|---|
-| **Load from Web** | Lo normal, y lo recomendado | Abre tu navegador, inicias sesión en Streamlabs y la aplicación recibe el token sola (OAuth con PKCE). |
-| **Load from PC** | Si ya usas Streamlabs Desktop | Lee el token que Streamlabs Desktop tiene guardado en tu equipo. Solo Windows y macOS. |
-| **Pegar el token** | Si ya lo tienes a mano | Pégalo en el campo *Paste token here*. |
+| **Iniciar sesión web** | Lo normal, y lo recomendado | Abre tu navegador, inicias sesión en Streamlabs y la aplicación recibe el token sola (OAuth con PKCE). |
+| **Cargar desde el PC** | Si ya usas Streamlabs Desktop | Lee el token que Streamlabs Desktop tiene guardado en tu equipo. Solo Windows y macOS. |
+| **Pegar el token** | Si ya lo tienes a mano | Pégalo en el campo del token. |
 
-Con **Load from Web**: se abrirá una pestaña del navegador, inicias sesión en
+Con **Iniciar sesión web**: se abrirá una pestaña del navegador, inicias sesión en
 Streamlabs con tu cuenta de TikTok y, cuando termine, puedes cerrar esa pestaña.
 La aplicación recibe el token automáticamente.
 
-Con **Load from PC**: no necesitas navegador, pero **lee datos de otra
+Con **Cargar desde el PC**: no necesitas navegador, pero **lee datos de otra
 aplicación** (Streamlabs Desktop). Es legítimo en tu propio equipo, aunque
-algunos antivirus se ponen nerviosos con eso; si te pasa, usa *Load from Web*.
+algunos antivirus se ponen nerviosos con eso; si te pasa, usa *Iniciar sesión web*.
 
 ### 3. Valida la cuenta
 
-Pulsa **Refresh Account Info**. Verás arriba rellenados:
+Pulsa **Actualizar datos de la cuenta**. Verás arriba rellenados:
 
 - **Username:** tu usuario de TikTok.
 - **Status:** el estado de tu solicitud de acceso.
-- **Can Go Live:** `True` o `False`.
+- **Puede emitir:** `True` o `False`.
 
 Si pone `False`, tu cuenta todavía no tiene permiso de emisión: **el botón Go
 Live quedará bloqueado**, porque TikTok rechazaría el directo igualmente.
 
 ### 4. Guarda el token (opcional pero cómodo)
 
-Pulsa **Save Token Securely**. El token se guarda **cifrado en el almacén de
+Pulsa **Guardar token de forma segura**. El token se guarda **cifrado en el almacén de
 credenciales de tu sistema** (Administrador de credenciales de Windows, Llavero
 de macOS, Secret Service en Linux), así que la próxima vez la aplicación arranca
 ya con la sesión puesta y no tienes que volver a iniciar sesión.
 
 ### 5. Rellena el directo
 
-- **Stream Title:** el título del directo.
-- **Game Category:** empieza a escribir y elige una de las sugerencias que
+- **Título del directo:** el título del directo.
+- **Categoría:** empieza a escribir y elige una de las sugerencias que
   aparecen debajo (o escribe `Other`).
-- **Enable mature content:** márcalo si el directo es para +18.
+- **Contenido para adultos:** márcalo si el directo es para +18.
 
-### 6. Pulsa **Go Live**
+### 6. Pulsa **Preparar directo**
 
 La aplicación le pide a Streamlabs que prepare la sesión y te muestra:
 
-- **Stream URL** → la URL del servidor RTMP.
-- **Stream Key** → la clave de retransmisión (aparece oculta; se copia con el
+- **URL del servidor** → la URL del servidor RTMP.
+- **Clave de retransmisión** → la clave de retransmisión (aparece oculta; se copia con el
   botón).
 
-Usa los botones **Copy URL** y **Copy Key** para copiarlas. Por seguridad, la
+Usa los botones **Copiar URL** y **Copiar clave** para copiarlas. Por seguridad, la
 clave **se borra del portapapeles a los 60 segundos**.
 
 ### 7. Pega los datos en OBS
 
 Ver [Cómo emitir en OBS](#cómo-emitir-en-obs).
 
-### 8. Al terminar, pulsa **End Live**
+### 8. Al terminar, pulsa **Finalizar directo**
 
 Esto cierra la sesión en Streamlabs. **Es importante hacerlo**: si dejas una
 sesión abierta, TikTok puede rechazarte el siguiente directo.
@@ -201,8 +201,8 @@ sesión abierta, TikTok puede rechazarte el siguiente directo.
 1. Abre OBS Studio.
 2. **Ajustes** (o *Configuración*) → **Emisión**.
 3. En **Servicio**, elige **Personalizado…**.
-4. **Servidor:** pega la **Stream URL** que te dio la aplicación.
-5. **Clave de retransmisión:** pega la **Stream Key**.
+4. **Servidor:** pega la **URL del servidor** que te dio la aplicación.
+5. **Clave de retransmisión:** pega la **Clave de retransmisión**.
 6. Pulsa **Aplicar** y luego **Empezar transmisión**.
 
 No cambies nada más. Si OBS no conecta, revisa que hayas copiado los dos valores
@@ -226,7 +226,7 @@ completos y que no haya espacios de más delante o detrás.
   qué hacer: **importarlo** al almacén seguro, **borrar** el archivo antiguo o
   dejarlo para luego. Si eliges no importarlo, ese token **no se carga**.
 
-👉 **Nunca publiques tu token ni tu stream key** en un *issue*, en un chat o en
+👉 **Nunca publiques tu token ni tu clave de retransmisión** en un *issue*, en un chat o en
 una captura de pantalla: con ellos se pueden abrir y cerrar directos en tu
 cuenta. Lee [`SECURITY.md`](SECURITY.md) antes de pedir ayuda.
 
@@ -248,7 +248,7 @@ sin molestarte si no hay nada nuevo) y te ofrece:
 ## Problemas frecuentes
 
 <details>
-<summary><b>«Can Go Live: False» / el botón Go Live está bloqueado</b></summary>
+<summary><b>«Puede emitir: False» / el botón Preparar directo está bloqueado</b></summary>
 
 Tu cuenta no tiene permiso de emisión vía Streamlabs. Solicítalo (no hacen falta
 1.000 seguidores) y espera la aprobación. Mientras tanto no hay nada que la
@@ -258,25 +258,25 @@ aplicación pueda hacer: es un requisito de TikTok/Streamlabs.
 <details>
 <summary><b>«El token de Streamlabs ha caducado o no es válido»</b></summary>
 
-Vuelve a cargarlo con **Load from Web** (o *Load from PC*) y pulsa **Refresh
+Vuelve a cargarlo con **Iniciar sesión web** (o *Cargar desde el PC*) y pulsa **Refresh
 Account Info**. Si tenías el token guardado, se reemplaza solo.
 </details>
 
 <details>
-<summary><b>No encuentra el token con «Load from PC»</b></summary>
+<summary><b>No encuentra el token con «Cargar desde el PC»</b></summary>
 
 - Comprueba que Streamlabs Desktop está instalado **y con la sesión de TikTok
   iniciada**.
-- En Linux esa opción no existe: usa **Load from Web**.
-- Si tu antivirus bloquea la lectura, usa **Load from Web**.
+- En Linux esa opción no existe: usa **Iniciar sesión web**.
+- Si tu antivirus bloquea la lectura, usa **Iniciar sesión web**.
 </details>
 
 <details>
 <summary><b>Mi antivirus marca el programa</b></summary>
 
-Es esperable: la opción «Load from PC» lee el almacén local de otra aplicación
+Es esperable: la opción «Cargar desde el PC» lee el almacén local de otra aplicación
 (la misma técnica que usan los ladrones de credenciales), así que algunos
-antivirus se quejan. Si no te fías, usa solo **Load from Web**, o compila el
+antivirus se quejan. Si no te fías, usa solo **Iniciar sesión web**, o compila el
 programa tú mismo desde el código fuente.
 </details>
 
@@ -294,8 +294,8 @@ xattr -dr com.apple.quarantine /ruta/a/StreamLabsTikTokStreamKeyGenerator.app
 <details>
 <summary><b>OBS no conecta / TikTok rechaza el directo</b></summary>
 
-1. Comprueba que **can Go Live** sea `True`.
-2. Pulsa **End Live** en la aplicación y vuelve a pulsar **Go Live** para generar
+1. Comprueba que **puede emitir** sea `True`.
+2. Pulsa **Finalizar directo** en la aplicación y vuelve a pulsar **Preparar directo** para generar
    una sesión nueva (las claves caducan).
 3. Verifica que has pegado la URL y la clave **completas** y sin espacios.
 4. Si el problema empezó justo después de cerrar la aplicación de golpe, deja que
@@ -305,8 +305,8 @@ xattr -dr com.apple.quarantine /ruta/a/StreamLabsTikTokStreamKeyGenerator.app
 <details>
 <summary><b>¿Dónde están los registros para pedir ayuda?</b></summary>
 
-Pulsa el botón **Logs** en la aplicación: se abre la carpeta con `app.log`. Ese
-archivo **no contiene tokens, códigos de autorización ni stream keys**, así que
+Pulsa el botón **Registros** en la aplicación: se abre la carpeta con `app.log`. Ese
+archivo **no contiene tokens, códigos de autorización ni claves de retransmisión**, así que
 es lo que debes adjuntar si abres un *issue*. Aun así, échale un vistazo antes de
 enviarlo.
 
@@ -389,7 +389,7 @@ Si una compilación falla, no hace falta crear otro tag: abre el *run* y usa
 - **Términos de servicio.** Usar estos endpoints puede quedar fuera de los
   términos de Streamlabs. **Las consecuencias recaen sobre la cuenta que
   autoriza el token**, no sobre el autor del programa. Valóralo antes de usarlo.
-- **«Load from PC»** lee el almacén local de otra aplicación en tu equipo (ver
+- **«Cargar desde el PC»** lee el almacén local de otra aplicación en tu equipo (ver
   arriba).
 - **Binarios sin firmar.** Windows y macOS pueden avisar al ejecutarlos.
   Comprueba siempre el checksum y no desactives Gatekeeper a ciegas.

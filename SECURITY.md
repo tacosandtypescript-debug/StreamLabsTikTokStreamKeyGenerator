@@ -1,37 +1,41 @@
-# Security policy
+# Política de seguridad
 
-## What this application handles
+## Qué maneja esta aplicación
 
-It stores and uses a **Streamlabs OAuth token** that can start and end live
-sessions on your TikTok account, and it can read the token the Streamlabs
-Desktop client keeps in its own local storage. Treat that token as a password.
+Guarda y usa un **token OAuth de Streamlabs** que puede **iniciar y cerrar
+directos en tu cuenta de TikTok**, y además puede leer el token que el cliente
+Streamlabs Desktop tiene guardado en tu equipo. Trata ese token como una
+contraseña.
 
-The token is kept in the operating system credential store (Windows Credential
-Manager, macOS Keychain, Linux Secret Service). It is never written to
-`config.json`, and the application never prints it or writes it to the log.
+El token vive en el almacén de credenciales del sistema operativo (Administrador
+de credenciales de Windows, Llavero de macOS, Secret Service en Linux). **Nunca**
+se escribe en `config.json`, y la aplicación no lo imprime ni lo escribe en el
+registro de actividad.
 
-## Never post these in an issue, discussion or screenshot
+## No publiques esto nunca en un issue, un chat o una captura
 
-- Your Streamlabs token (`oauth_token`, `apiToken`): it can open and close live
-  streams on your account.
-- Your TikTok stream key or the RTMP URL.
-- A screenshot with the token field revealed with the eye button.
-- Your `config.json` — it holds no token, but check it before sharing anyway.
+- Tu token de Streamlabs (`oauth_token`, `apiToken`): con él se pueden abrir y
+  cerrar directos en tu cuenta.
+- Tu clave de retransmisión de TikTok o la URL RTMP.
+- Una captura con el campo del token mostrado con el botón del ojo.
+- Tu `config.json` — no contiene el token, pero revísalo antes de compartirlo.
 
-**If you already posted a token, revoke it first** (in Streamlabs Desktop,
-signing out invalidates the stored token) and only then edit or delete the
-message. Rotating the credential matters far more than hiding the message.
+**Si ya has publicado un token, revócalo primero** (cerrando la sesión en
+Streamlabs Desktop se invalida el token guardado) y solo después edita o borra el
+mensaje. Rotar la credencial importa mucho más que esconder el mensaje.
 
-## What to include in a report
+## Qué incluir al pedir ayuda
 
-- The application version (shown in the update dialog, or `version.py`).
-- Your operating system.
-- The log file: click **Logs** in the application and attach the `app.log` it
-  opens. It contains no tokens, authorization codes or stream keys by design,
-  but read it before attaching it.
+- La versión de la aplicación (aparece en el aviso de actualización, o en
+  `version.py`).
+- Tu sistema operativo.
+- El registro: pulsa **Registros** en la aplicación y adjunta el `app.log` que
+  abre. Por diseño no contiene tokens, códigos de autorización ni claves de
+  retransmisión, pero échale un vistazo antes de enviarlo.
 
-## Reporting a vulnerability
+## Cómo reportar una vulnerabilidad
 
-Use GitHub's **Security → Report a vulnerability** tab for anything sensitive,
-or open a regular issue otherwise. A redacted example is always enough: never
-send a working token or stream key.
+Usa la pestaña **Security → Report a vulnerability** de GitHub para cualquier
+cosa sensible, o abre un *issue* normal si el problema no es delicado. Un ejemplo
+con los datos tachados es siempre suficiente: no envíes nunca un token ni una
+clave que funcione.

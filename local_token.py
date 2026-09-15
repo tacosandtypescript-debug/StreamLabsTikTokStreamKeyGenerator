@@ -1,6 +1,6 @@
 """Read the Streamlabs Desktop API token from its local storage.
 
-This is the "Load from PC" path. It deliberately lives outside the GUI module
+This is the "Cargar desde el PC" path. It deliberately lives outside the GUI module
 so it can be tested without importing Qt.
 """
 
@@ -47,7 +47,7 @@ def local_storage_dir() -> Path:
         )
     raise LocalTokenUnsupportedError(
         f"La importación local solo está disponible en Windows y macOS, no en {system}. "
-        "Usa Load from Web en Linux."
+        "Usa «Iniciar sesión web» en Linux."
     )
 
 
@@ -100,10 +100,10 @@ def local_token_hint() -> str:
     if not base.is_dir():
         return (
             "No se encontró la carpeta de datos de Streamlabs Desktop. "
-            "Instálalo e inicia sesión con tu cuenta de TikTok, o usa Load from Web."
+            "Instálalo e inicia sesión con tu cuenta de TikTok, o usa «Iniciar sesión web»."
         )
     return (
         "La carpeta de datos de Streamlabs existe, pero no contiene un token "
         "reconocible. Puede que hayas cerrado la sesión ahí o que su formato haya "
-        "cambiado; usa Load from Web."
+        "cambiado; usa «Iniciar sesión web»."
     )

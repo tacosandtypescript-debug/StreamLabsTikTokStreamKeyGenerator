@@ -1,6 +1,6 @@
-name: "🐛 Bug Report"
-description: Create a new ticket for a bug.
-title: "🐛 [BUG] - <title>"
+name: "🐛 Informe de error"
+description: Crear un informe para describir un error.
+title: "🐛 [BUG] - <título>"
 labels: [
   "bug"
 ]
@@ -8,62 +8,61 @@ body:
   - type: textarea
     id: description
     attributes:
-      label: "Description"
-      description: Please enter an explicit description of your issue (SEARCH FOR EXISTING ISSUES FIRST). Also check [StreamLabs known issues](https://support.streamlabs.com/hc/en-us/categories/27279811363227-Known-Issues)
-      placeholder: Short and explicit description of your incident...
+      label: "Descripción"
+      description: Explica el problema con el mayor detalle posible (BUSCA ANTES SI YA EXISTE UN ISSUE ABIERTO). Consulta también los [problemas conocidos de Streamlabs](https://support.streamlabs.com/hc/en-us/categories/27279811363227-Known-Issues)
+      placeholder: Descripción breve y concreta de lo que te ha pasado...
     validations:
       required: true
   - type: textarea
     id: reprod
     attributes:
-      label: "Reproduction steps"
-      description: Please enter an explicit description of your issue
+      label: "Pasos para reproducirlo"
+      description: Indica los pasos exactos que hiciste
       value: |
-        1. Go to '...'
-        2. Click on '....'
-        3. Scroll down to '....'
-        4. See error
+        1. Abro la aplicación
+        2. Pulsa '...'
+        3. Aparece el error
       render: bash
     validations:
       required: true
   - type: textarea
     id: screenshot
     attributes:
-      label: "Screenshots"
-      description: If applicable, add screenshots to help explain your problem.
+      label: "Capturas de pantalla"
+      description: "Si viene al caso, añade capturas. OJO: tapa tu token y tu clave de retransmisión."
       value: |
-        ![DESCRIPTION](LINK.png)
+        ![DESCRIPCIÓN](ENLACE.png)
       render: bash
     validations:
       required: false
   - type: checkboxes
     id: secrets
     attributes:
-      label: "Token check"
-      description: "Your Streamlabs token can start and stop live streams on your TikTok account. See SECURITY.md."
+      label: "Comprobación de secretos"
+      description: "Tu token de Streamlabs puede abrir y cerrar directos en tu cuenta de TikTok. Lee SECURITY.md antes de publicar."
       options:
-        - label: "I have not included my Streamlabs token, my stream key, or a screenshot showing them."
+        - label: "No he incluido mi token de Streamlabs, ni mi clave de retransmisión, ni capturas donde se vean."
           required: true
   - type: textarea
     id: logs
     attributes:
-      label: "Logs"
+      label: "Registros"
       description: |
-        Paste the application log, which you can open with the "Logs" button. It contains no tokens,
-        authorization codes or stream keys. If you paste anything else (console output, config.json),
-        remove your token and stream key first.
+        Pega el registro de la aplicación, que puedes abrir con el botón "Registros". No contiene
+        tokens, códigos de autorización ni claves de retransmisión. Si pegas cualquier otra cosa
+        (salida de consola, config.json), borra antes tu token y tu clave.
       render: bash
     validations:
       required: false
   - type: dropdown
     id: os
     attributes:
-      label: "OS"
-      description: What is the impacted environment ?
+      label: "Sistema operativo"
+      description: ¿Dónde te ha pasado?
       multiple: true
       options:
         - Windows
         - Linux
-        - Mac
+        - macOS
     validations:
-      required: false
+      required: true

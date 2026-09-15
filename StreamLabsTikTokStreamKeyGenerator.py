@@ -117,7 +117,7 @@ class StreamApp(QMainWindow):
         self._defer(0, self._finish_startup)
 
     def init_ui(self) -> None:
-        self.setWindowTitle("StreamLabs TikTok Stream Key Generator")
+        self.setWindowTitle("Generador de clave de TikTok Live (vía Streamlabs)")
         self.setMinimumSize(800, 600)
 
         main_widget = QWidget()
@@ -127,7 +127,7 @@ class StreamApp(QMainWindow):
         left_column = QVBoxLayout()
         main_layout.addLayout(left_column)
 
-        token_group = QGroupBox("Token Loader")
+        token_group = QGroupBox("Token de Streamlabs")
         token_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         left_column.addWidget(token_group)
         token_layout = QVBoxLayout(token_group)
@@ -136,7 +136,7 @@ class StreamApp(QMainWindow):
 
         token_entry_row = QHBoxLayout()
         self.token_entry = QLineEdit()
-        self.token_entry.setPlaceholderText("Paste token here or load below...")
+        self.token_entry.setPlaceholderText("Pega aquí el token o cárgalo con los botones…")
         self.token_entry.setEchoMode(QLineEdit.EchoMode.Password)
         self.token_entry.setFixedHeight(28)
         self.token_entry.textChanged.connect(lambda _text: self.handle_token_change())
@@ -145,37 +145,41 @@ class StreamApp(QMainWindow):
 
         self.toggle_token_btn = QPushButton("👁️")
         self.toggle_token_btn.setFixedSize(28, 28)
-        self.toggle_token_btn.setToolTip("Show token")
+        self.toggle_token_btn.setToolTip("Mostrar el token")
         self.toggle_token_btn.clicked.connect(lambda _checked=False: self.toggle_token_visibility())
         token_entry_row.addWidget(self.toggle_token_btn)
         token_layout.addLayout(token_entry_row)
 
         load_buttons_row = QHBoxLayout()
-        self.load_local_btn = QPushButton("Load from PC")
+        self.load_local_btn = QPushButton("Cargar desde el PC")
         self.load_local_btn.setFixedHeight(30)
-        self.load_local_btn.setToolTip("Load a token from Streamlabs Desktop data")
+        self.load_local_btn.setToolTip(
+            "Lee el token que Streamlabs Desktop tiene guardado en este equipo"
+        )
         self.load_local_btn.clicked.connect(self.load_local_token)
         load_buttons_row.addWidget(self.load_local_btn)
 
-        self.load_online_btn = QPushButton("Load from Web")
+        self.load_online_btn = QPushButton("Iniciar sesión web")
         self.load_online_btn.setFixedHeight(30)
-        self.load_online_btn.setToolTip("Get a token through the Streamlabs browser login")
+        self.load_online_btn.setToolTip("Obtiene el token con el inicio de sesión de Streamlabs")
         self.load_online_btn.clicked.connect(self.fetch_online_token)
         load_buttons_row.addWidget(self.load_online_btn)
         token_layout.addLayout(load_buttons_row)
 
-        self.save_token_btn = QPushButton("Save Token Securely")
+        self.save_token_btn = QPushButton("Guardar token de forma segura")
         self.save_token_btn.setFixedHeight(30)
-        self.save_token_btn.setToolTip("Save the validated token in the OS secure store")
+        self.save_token_btn.setToolTip(
+            "Guarda el token validado en el almacén de credenciales del sistema"
+        )
         self.save_token_btn.clicked.connect(lambda _checked=False: self.save_token_securely())
         token_layout.addWidget(self.save_token_btn)
 
-        account_info_label = QLabel("Account Information")
+        account_info_label = QLabel("Información de la cuenta")
         account_info_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         token_layout.addWidget(account_info_label)
 
         username_row = QHBoxLayout()
-        username_label = QLabel("Username:")
+        username_label = QLabel("Usuario:")
         username_label.setFixedWidth(100)
         self.tiktok_username = QLineEdit()
         self.tiktok_username.setReadOnly(True)
@@ -185,7 +189,7 @@ class StreamApp(QMainWindow):
         token_layout.addLayout(username_row)
 
         status_row = QHBoxLayout()
-        status_label = QLabel("Status:")
+        status_label = QLabel("Estado:")
         status_label.setFixedWidth(100)
         self.app_status = QLineEdit()
         self.app_status.setReadOnly(True)
@@ -195,7 +199,7 @@ class StreamApp(QMainWindow):
         token_layout.addLayout(status_row)
 
         live_row = QHBoxLayout()
-        live_label = QLabel("Can Go Live:")
+        live_label = QLabel("Puede emitir:")
         live_label.setFixedWidth(100)
         self.can_go_live = QLineEdit()
         self.can_go_live.setReadOnly(True)
@@ -204,19 +208,20 @@ class StreamApp(QMainWindow):
         live_row.addWidget(self.can_go_live)
         token_layout.addLayout(live_row)
 
-        self.refresh_btn = QPushButton("Refresh Account Info")
+        self.refresh_btn = QPushButton("Actualizar datos de la cuenta")
         self.refresh_btn.setFixedHeight(30)
+        self.refresh_btn.setToolTip("Vuelve a consultar el usuario, el estado y el permiso de emisión")
         self.refresh_btn.clicked.connect(lambda _checked=False: self.refresh_account_info())
         token_layout.addWidget(self.refresh_btn)
         token_layout.addStretch()
 
-        stream_group = QGroupBox("Stream Details")
+        stream_group = QGroupBox("Datos del directo")
         left_column.addWidget(stream_group)
         stream_layout = QVBoxLayout(stream_group)
         stream_layout.setContentsMargins(8, 8, 8, 8)
         stream_layout.setSpacing(5)
 
-        title_label = QLabel("Stream Title:")
+        title_label = QLabel("Título del directo:")
         title_label.setStyleSheet("font-weight: bold;")
         stream_layout.addWidget(title_label)
         self.stream_title = QLineEdit()
@@ -224,11 +229,12 @@ class StreamApp(QMainWindow):
         self.stream_title.textChanged.connect(lambda _text: self._update_controls())
         stream_layout.addWidget(self.stream_title)
 
-        game_label = QLabel("Game Category:")
+        game_label = QLabel("Categoría:")
         game_label.setStyleSheet("font-weight: bold;")
         stream_layout.addWidget(game_label)
         self.game_category = QLineEdit()
         self.game_category.setFixedHeight(28)
+        self.game_category.setToolTip("Escribe para buscar; elige una sugerencia de la lista")
         self.game_category.textChanged.connect(self.handle_game_search)
         stream_layout.addWidget(self.game_category)
 
@@ -238,13 +244,13 @@ class StreamApp(QMainWindow):
         self.suggestions_list.itemClicked.connect(self.handle_suggestion_selected)
         stream_layout.addWidget(self.suggestions_list)
 
-        self.mature_checkbox = QCheckBox("Enable mature content")
+        self.mature_checkbox = QCheckBox("Contenido para adultos")
         self.mature_checkbox.setStyleSheet("padding: 2px;")
         self.mature_checkbox.stateChanged.connect(lambda _state: self._update_controls())
         stream_layout.addWidget(self.mature_checkbox)
         stream_layout.addStretch()
 
-        control_group = QGroupBox("Stream Control")
+        control_group = QGroupBox("Control del directo")
         control_group.setMinimumWidth(250)
         main_layout.addWidget(control_group)
         control_layout = QVBoxLayout(control_group)
@@ -252,32 +258,36 @@ class StreamApp(QMainWindow):
         control_layout.setSpacing(6)
 
         button_row = QHBoxLayout()
-        self.go_live_btn = QPushButton("Go Live")
+        self.go_live_btn = QPushButton("Preparar directo")
+        self.go_live_btn.setToolTip(
+            "Pide a Streamlabs que prepare la sesión y devuelve la URL y la clave"
+        )
         self.go_live_btn.setEnabled(False)
         self.go_live_btn.setFixedHeight(32)
         self.go_live_btn.clicked.connect(lambda _checked=False: self.start_stream())
         button_row.addWidget(self.go_live_btn)
 
-        self.end_live_btn = QPushButton("End Live")
+        self.end_live_btn = QPushButton("Finalizar directo")
+        self.end_live_btn.setToolTip("Cierra la sesión abierta en Streamlabs")
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.setFixedHeight(32)
         self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
         button_row.addWidget(self.end_live_btn)
         control_layout.addLayout(button_row)
 
-        url_label = QLabel("Stream URL:")
+        url_label = QLabel("URL del servidor:")
         url_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
         control_layout.addWidget(url_label)
         self.stream_url = QLineEdit()
         self.stream_url.setReadOnly(True)
         self.stream_url.setFixedHeight(28)
         control_layout.addWidget(self.stream_url)
-        self.copy_url_btn = QPushButton("Copy URL")
+        self.copy_url_btn = QPushButton("Copiar URL")
         self.copy_url_btn.setFixedHeight(28)
         self.copy_url_btn.clicked.connect(lambda: self.copy_to_clipboard(self.stream_url, False))
         control_layout.addWidget(self.copy_url_btn)
 
-        key_label = QLabel("Stream Key:")
+        key_label = QLabel("Clave de retransmisión:")
         key_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
         control_layout.addWidget(key_label)
         self.stream_key = QLineEdit()
@@ -285,7 +295,8 @@ class StreamApp(QMainWindow):
         self.stream_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.stream_key.setFixedHeight(28)
         control_layout.addWidget(self.stream_key)
-        self.copy_key_btn = QPushButton("Copy Key")
+        self.copy_key_btn = QPushButton("Copiar clave")
+        self.copy_key_btn.setToolTip("Se borra del portapapeles a los 60 segundos")
         self.copy_key_btn.setFixedHeight(28)
         self.copy_key_btn.clicked.connect(lambda: self.copy_to_clipboard(self.stream_key, True))
         control_layout.addWidget(self.copy_key_btn)
@@ -293,28 +304,29 @@ class StreamApp(QMainWindow):
 
         bottom_buttons = QHBoxLayout()
         left_column.addLayout(bottom_buttons)
-        self.save_btn = QPushButton("Save Config")
-        self.save_btn.setToolTip("Save non-sensitive stream preferences")
+        self.save_btn = QPushButton("Guardar configuración")
+        self.save_btn.setToolTip("Guarda el título, la categoría y las preferencias (sin secretos)")
         self.save_btn.clicked.connect(lambda _checked=False: self.save_config())
         bottom_buttons.addWidget(self.save_btn)
 
-        self.help_btn = QPushButton("Help")
+        self.help_btn = QPushButton("Ayuda")
         self.help_btn.clicked.connect(lambda _checked=False: self.show_help())
         bottom_buttons.addWidget(self.help_btn)
 
-        self.logs_btn = QPushButton("Logs")
+        self.logs_btn = QPushButton("Registros")
         self.logs_btn.setToolTip("Abrir la carpeta de registros de la aplicación")
         self.logs_btn.clicked.connect(lambda _checked=False: self.open_logs_folder())
         bottom_buttons.addWidget(self.logs_btn)
 
-        self.donate_btn = QPushButton("☕ Donate")
-        self.donate_btn.setToolTip("Support the developer")
+        self.donate_btn = QPushButton("☕ Donar")
+        self.donate_btn.setToolTip("Apoyar al autor del proyecto original")
         self.donate_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://buymeacoffee.com/loukious"))
         )
         bottom_buttons.addWidget(self.donate_btn)
 
-        self.monitor_btn = QPushButton("Open Live Monitor")
+        self.monitor_btn = QPushButton("Abrir monitor de TikTok")
+        self.monitor_btn.setToolTip("Abre el monitor de directos de TikTok en el navegador")
         self.monitor_btn.clicked.connect(lambda _checked=False: self.open_live_monitor())
         bottom_buttons.addWidget(self.monitor_btn)
 
@@ -346,7 +358,7 @@ class StreamApp(QMainWindow):
                 0,
                 lambda: QMessageBox.warning(
                     self,
-                    "Configuration warning",
+                    "Aviso de configuración",
                     "No se pudo leer la configuración existente. No se ha sobrescrito.",
                 ),
             )
@@ -533,14 +545,14 @@ class StreamApp(QMainWindow):
             self.config_store.save(config)
         except ConfigError as exc:
             LOGGER.debug("Configuration save failed", exc_info=True)
-            QMessageBox.critical(self, "Configuration error", str(exc))
+            QMessageBox.critical(self, "Error de configuración", str(exc))
             return False
 
         self.config = config
         if show_message:
             QMessageBox.information(
                 self,
-                "Config Saved",
+                "Configuración guardada",
                 "La configuración se guardó sin incluir el token.",
             )
         return True
@@ -574,11 +586,11 @@ class StreamApp(QMainWindow):
         if self.token_entry.echoMode() == QLineEdit.EchoMode.Normal:
             self.token_entry.setEchoMode(QLineEdit.EchoMode.Password)
             self.toggle_token_btn.setText("👁️")
-            self.toggle_token_btn.setToolTip("Show token")
+            self.toggle_token_btn.setToolTip("Mostrar el token")
         else:
             self.token_entry.setEchoMode(QLineEdit.EchoMode.Normal)
             self.toggle_token_btn.setText("👁️‍🗨️")
-            self.toggle_token_btn.setToolTip("Hide token")
+            self.toggle_token_btn.setToolTip("Ocultar el token")
 
     def handle_token_change(self) -> None:
         if self._loading_config:
@@ -621,7 +633,7 @@ class StreamApp(QMainWindow):
         self.tiktok_username.setText(info.username)
         self.app_status.setText(info.application_status)
         self.can_go_live.setText(str(info.can_be_live))
-        self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para Go Live")
+        self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
         LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
         self._update_controls()
         if self._session_record is not None and not self._session_prompted:
@@ -641,7 +653,7 @@ class StreamApp(QMainWindow):
         self._set_status(safe_error_message(exc))
         self._update_controls()
         if not silent:
-            QMessageBox.critical(self, "Account error", safe_error_message(exc))
+            QMessageBox.critical(self, "Error de cuenta", safe_error_message(exc))
 
     def load_local_token(self) -> None:
         self._set_operation_busy("local", True)
@@ -652,12 +664,12 @@ class StreamApp(QMainWindow):
             self._local_token_loaded,
             lambda exc: QMessageBox.warning(
                 self,
-                "Local token",
+                "Token local",
                 safe_error_message(exc),
             ),
             lambda: (
                 self._set_operation_busy("local", False),
-                self.load_local_btn.setText("Load from PC"),
+                self.load_local_btn.setText("Cargar desde el PC"),
             ),
         )
 
@@ -669,14 +681,14 @@ class StreamApp(QMainWindow):
 
     def _local_token_loaded(self, token: str | None) -> None:
         if not token:
-            QMessageBox.warning(self, "Local token", local_token_hint())
+            QMessageBox.warning(self, "Token local", local_token_hint())
             return
         LOGGER.info("Token read from the Streamlabs local storage")
         self._apply_retrieved_token(token)
 
     def fetch_online_token(self) -> None:
         self._set_operation_busy("online", True)
-        self.load_online_btn.setText("Waiting for login…")
+        self.load_online_btn.setText("Esperando el inicio de sesión…")
 
         retriever = TokenRetriever()
         self._online_retriever = retriever
@@ -690,14 +702,14 @@ class StreamApp(QMainWindow):
         def finished() -> None:
             self._online_retriever = None
             self._set_operation_busy("online", False)
-            self.load_online_btn.setText("Load from Web")
+            self.load_online_btn.setText("Iniciar sesión web")
 
         self._run_worker(
             work,
             self._apply_retrieved_token,
             lambda exc: QMessageBox.critical(
                 self,
-                "Web login",
+                "Inicio de sesión web",
                 safe_error_message(exc),
             ),
             finished,
@@ -809,7 +821,7 @@ class StreamApp(QMainWindow):
         if not self._can_start_stream():
             QMessageBox.warning(
                 self,
-                "Stream not ready",
+                "Directo no preparado",
                 "Valida la cuenta y selecciona una categoría válida antes de iniciar.",
             )
             return
@@ -834,7 +846,7 @@ class StreamApp(QMainWindow):
             self._stream_started,
             lambda exc: QMessageBox.critical(
                 self,
-                "Start stream",
+                "Preparar directo",
                 safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("start", False),
@@ -858,8 +870,8 @@ class StreamApp(QMainWindow):
         self._update_controls()
         QMessageBox.information(
             self,
-            "Live Started",
-            "Sesión preparada. Copia la URL y la stream key en OBS para comenzar.",
+            "Directo preparado",
+            "Sesión preparada. Copia la URL y la clave de retransmisión en OBS para comenzar.",
         )
 
     def end_stream(self) -> None:
@@ -878,7 +890,7 @@ class StreamApp(QMainWindow):
             self._stream_ended,
             lambda exc: QMessageBox.critical(
                 self,
-                "End stream",
+                "Finalizar directo",
                 safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("end", False),
@@ -895,7 +907,7 @@ class StreamApp(QMainWindow):
         self._update_controls()
         QMessageBox.information(
             self,
-            "Live Ended",
+            "Directo finalizado",
             "La sesión de Streamlabs terminó correctamente.",
         )
 
@@ -909,8 +921,8 @@ class StreamApp(QMainWindow):
             self._clipboard_timer.start()
         QMessageBox.information(
             self,
-            "Copied",
-            "Copiado. La stream key se retirará del portapapeles en 60 segundos."
+            "Copiado",
+            "Copiado. La clave de retransmisión se retirará del portapapeles en 60 segundos."
             if sensitive
             else "Texto copiado al portapapeles.",
         )
@@ -934,7 +946,7 @@ class StreamApp(QMainWindow):
 
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Warning)
-        message.setWindowTitle("Migrate token")
+        message.setWindowTitle("Token antiguo")
         message.setText(
             "Se encontró un token antiguo guardado en texto plano en:\n"
             f"{legacy_path}\n\n"
@@ -993,7 +1005,7 @@ class StreamApp(QMainWindow):
             self.token_store.save_token(token)
             self._secure_store_available = True
         except TokenStoreUnavailable as exc:
-            QMessageBox.warning(self, "Migration", safe_error_message(exc))
+            QMessageBox.warning(self, "Migración", safe_error_message(exc))
             self._remember_declined_migration()
             LOGGER.warning("Legacy token could not be stored securely")
         else:
@@ -1021,7 +1033,7 @@ class StreamApp(QMainWindow):
             LOGGER.warning("Could not delete the legacy configuration file")
             QMessageBox.warning(
                 self,
-                "Migration",
+                "Migración",
                 "No se pudo borrar el fichero antiguo. Elimínalo manualmente.",
             )
 
@@ -1149,11 +1161,13 @@ class StreamApp(QMainWindow):
 
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Information)
-        message.setWindowTitle("Support Development")
-        message.setText("Enjoying this app? Consider supporting its development!")
-        dont_show_again = QCheckBox("Never show this message again")
+        message.setWindowTitle("Apoya el proyecto")
+        message.setText(
+            "¿Te resulta útil esta aplicación? Puedes apoyar su desarrollo."
+        )
+        dont_show_again = QCheckBox("No volver a mostrar este mensaje")
         message.setCheckBox(dont_show_again)
-        donate_btn = message.addButton("Donate Now", QMessageBox.ButtonRole.AcceptRole)
+        donate_btn = message.addButton("Donar ahora", QMessageBox.ButtonRole.AcceptRole)
         message.addButton(QMessageBox.StandardButton.Ok)
         donate_btn.setStyleSheet("font-weight: bold;")
         message.exec()
@@ -1175,7 +1189,7 @@ class StreamApp(QMainWindow):
         if not update_info:
             return
         message = QMessageBox(self)
-        message.setWindowTitle("Update Available")
+        message.setWindowTitle("Actualización disponible")
         message.setText(
             f"La versión {update_info['latest']} está disponible "
             f"(tienes la {update_info['current']}).\n\n"
@@ -1295,7 +1309,7 @@ class StreamApp(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(
                 self,
-                "Logs",
+                "Registros",
                 f"No se pudo abrir la carpeta de registros: {exc}",
             )
             return
@@ -1304,13 +1318,14 @@ class StreamApp(QMainWindow):
 
     def show_help(self) -> None:
         help_text = (
-            "1. Apply for TikTok LIVE/RTMP access through Streamlabs.\n"
-            "2. Use Load from PC or Load from Web.\n"
-            "3. Validate the account and select a title/category.\n"
-            "4. Optionally save the validated token securely.\n"
-            "5. Prepare the session, then copy the URL and key into OBS."
+            "1. Solicita el acceso a TikTok LIVE/RTMP a través de Streamlabs.\n"
+            "2. Carga el token con «Iniciar sesión web» o «Cargar desde el PC».\n"
+            "3. Pulsa «Actualizar datos de la cuenta» y elige título y categoría.\n"
+            "4. Opcional: «Guardar token de forma segura» para no repetir el login.\n"
+            "5. Pulsa «Preparar directo» y copia la URL y la clave en OBS.\n"
+            "6. Al terminar, pulsa «Finalizar directo»."
         )
-        QMessageBox.information(self, "Help", help_text)
+        QMessageBox.information(self, "Ayuda", help_text)
 
     def open_live_monitor(self) -> None:
         QDesktopServices.openUrl(QUrl("https://livecenter.tiktok.com/live_monitor?lang=en-US"))
@@ -1325,7 +1340,7 @@ class StreamApp(QMainWindow):
         if self._active_session:
             QMessageBox.warning(
                 self,
-                "Active session",
+                "Sesión activa",
                 "La sesión de Streamlabs sigue activa. Comprueba OBS antes de cerrar.\n\n"
                 "Se ha guardado su identificador: al volver a abrir la aplicación "
                 "podrás cerrarla desde ahí.",
