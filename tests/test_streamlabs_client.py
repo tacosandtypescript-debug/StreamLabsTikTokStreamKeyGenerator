@@ -7,7 +7,6 @@ from streamlabs_client import (
     Category,
     EndpointChangedError,
     NetworkError,
-    PermissionError as StreamlabsPermissionError,
     RateLimitError,
     StreamlabsError,
     StreamlabsTikTokClient,
@@ -100,7 +99,7 @@ def test_account_info_and_stream_lifecycle_are_typed():
     ("status", "expected"),
     [
         (401, AuthenticationError),
-        (403, StreamlabsPermissionError),
+        (403, streamlabs_client.PermissionError),
         (429, RateLimitError),
         (500, StreamlabsError),
     ],
