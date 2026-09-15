@@ -263,11 +263,15 @@ jobs:
         with:
           path: artifacts/
 
-      # The README tells users to verify a checksum, so one has to exist.
+      # The README tells users to verify a checksum, so one has to exist. Only
+      # the bare file name is written, so "sha256sum -c SHA256SUMS.txt" works
+      # for a user who drops the downloaded ZIPs in a single folder.
       - name: Generate checksums
         working-directory: artifacts
         run: |
-          find . -type f -name '*.zip' -print0 | sort -z | xargs -0 sha256sum | sed 's|\./||' > ../SHA256SUMS.txt
+          find . -type f -name '*.zip' -print0 | sort -z | while IFS= read -r -d '' file; do
+            printf '%s  %s\n' "$(sha256sum "$file" | cut -d' ' -f1)" "$(basename "$file")"
+          done > ../SHA256SUMS.txt
           cat ../SHA256SUMS.txt
 
       - name: Create the release

@@ -77,20 +77,29 @@ Ver [Atribución y licencia](#atribución-y-licencia).
    - `...-arm64-macos-<versión>.zip` → **macOS con Apple Silicon** (M1/M2/M3…)
    - `...-x86_64-macos-<versión>.zip` → **macOS con Intel**
    - `...-linux-<versión>.zip` → **Linux**
-3. **Comprueba el checksum** (recomendado, 10 segundos). Descarga también
-   `SHA256SUMS.txt` de la misma release y compara:
+3. **Comprueba el checksum** (recomendado, 10 segundos). Abre `SHA256SUMS.txt` en
+   la misma página de la release y compara el valor de tu archivo con su línea:
 
    ```powershell
    # Windows
-   Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-2.0.10.zip -Algorithm SHA256
+   Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-2.1.0.zip -Algorithm SHA256
    ```
    ```bash
-   # Linux
-   sha256sum -c SHA256SUMS.txt
    # macOS
-   shasum -a 256 -c SHA256SUMS.txt
+   shasum -a 256 StreamLabsTikTokStreamKeyGenerator-x86_64-macos-2.1.0.zip
+   # Linux
+   sha256sum StreamLabsTikTokStreamKeyGenerator-linux-2.1.0.zip
    ```
-   El valor debe coincidir con la línea correspondiente de `SHA256SUMS.txt`.
+
+   Si descargas **todos** los ZIP en una misma carpeta junto a `SHA256SUMS.txt`,
+   en Linux puedes verificarlos de una sola vez:
+
+   ```bash
+   sha256sum -c --ignore-missing SHA256SUMS.txt
+   ```
+
+   El hash debe coincidir exactamente con su línea del archivo. Si no coincide,
+   **no lo ejecutes**: vuelve a descargarlo.
 4. Descomprime el ZIP y ejecuta la aplicación.
 
 **Notas por sistema:**
