@@ -83,6 +83,11 @@ import the token into the OS credential store, delete the old file, or decide
 later. A token from a file you chose not to import is never loaded into the UI,
 and the decision is remembered.
 
+`config.json` also keeps the **id of a prepared session** while one is open. It
+holds no secret (session id, title and start time) and it lets the next run
+offer to close a session that a crash or a forced shutdown left behind on
+Streamlabs.
+
 ## Usage
 
 1. Obtain the required TikTok LIVE/RTMP access through Streamlabs.
@@ -93,6 +98,14 @@ and the decision is remembered.
 6. Click **Go Live** to prepare the Streamlabs session.
 7. Copy the displayed URL and stream key into OBS.
 8. Click **End Live** when the Streamlabs session should be closed.
+
+If a previous run ended without closing its session, the application offers to
+close it (or forget the record) on the next start: a session left open can make
+TikTok reject a new stream.
+
+The **Logs** button opens the folder with the rotating `app.log`, which is what
+you should attach to a bug report. It never contains tokens, authorization
+codes or stream keys.
 
 The stream key is copied to the clipboard only on request and is cleared after
 60 seconds if it has not been replaced by another application.
@@ -137,8 +150,27 @@ Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-<version>.zip -Algorithm S
 Compare the value with the matching line before running a downloaded binary,
 and make sure the release came from this repository.
 
-The project does not automatically download or execute updates. The update
-check only opens the GitHub release page after confirmation.
+The project does not automatically execute updates, and it never installs
+anything by itself. When a newer release exists you can:
+
+- **Download**: the application fetches the package built for your platform into
+  your downloads folder, shows progress, and verifies it against the published
+  `SHA256SUMS.txt` before keeping it. A mismatching or interrupted transfer is
+  discarded and nothing is kept. Running the downloaded file is always your
+  decision.
+- **Open the release page** and pick an artifact yourself.
+
+Publishing is automatic: pushing a version tag runs the tests, compiles
+Windows, macOS (x86_64 and arm64) and Linux, writes `SHA256SUMS.txt` and creates
+the release with generated notes.
+
+```bash
+git tag v2.0.10
+git push origin v2.0.10
+```
+
+The workflow can also be started manually from the Actions tab when you want to
+write your own changelog.
 
 ## Development notes
 
@@ -146,6 +178,11 @@ check only opens the GitHub release page after confirmation.
 - `TokenRetriever.py` contains the browser OAuth/PKCE callback flow.
 - `secure_store.py` contains OS credential-store access.
 - `config_store.py` contains non-secret, versioned preferences.
+- `local_token.py` reads the token from the Streamlabs Desktop storage; it has
+  no Qt dependency, so it is unit-testable on its own.
+- `errors.py` turns exceptions into messages that never leak secrets.
+- `logging_setup.py` configures the rotating log file that the **Logs** button
+  opens (`platformdirs` log directory).
 - `workers.py` contains the `QThreadPool` helpers. Callbacks connected to a
   worker must use `Qt.ConnectionType.QueuedConnection` so that they run on the
   GUI thread.
@@ -154,6 +191,10 @@ check only opens the GitHub release page after confirmation.
 CI runs `python -m compileall`, `ruff check`, `pytest` and `pip-audit` on
 Ubuntu, Windows and macOS. The dependency audit is reported but does not fail
 the build, so a newly published CVE cannot freeze releases unexpectedly.
+
+The graphical logic is exercised with `pytest-qt` offscreen: stream readiness,
+session bookkeeping and the legacy-token decisions are covered without opening
+a window. Read `SECURITY.md` before pasting any log anywhere public.
 
 Packaged builds must bundle the platform keyring backend explicitly
 (`win32ctypes` on Windows, `secretstorage`/`jeepney` on Linux); otherwise the

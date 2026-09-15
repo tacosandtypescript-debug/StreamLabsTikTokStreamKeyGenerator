@@ -27,6 +27,27 @@ class ConfigError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ActiveSession:
+    """A Streamlabs session that may still be open on the server side.
+
+    It holds no secret: only the session id Streamlabs returned, the title it
+    was started with and an ISO-8601 timestamp. Keeping it lets the application
+    offer to close a session left behind by an earlier run.
+    """
+
+    session_id: str
+    title: str = ""
+    started_at: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "session_id": self.session_id,
+            "title": self.title,
+            "started_at": self.started_at,
+        }
+
+
+@dataclass(frozen=True)
 class AppConfig:
     schema_version: int = CURRENT_SCHEMA_VERSION
     title: str = ""
@@ -34,6 +55,7 @@ class AppConfig:
     audience_type: str = "0"
     suppress_donation_reminder: bool = False
     legacy_migration_declined: bool = False
+    active_session: ActiveSession | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +65,7 @@ class AppConfig:
             "audience_type": self.audience_type,
             "suppress_donation_reminder": self.suppress_donation_reminder,
             "legacy_migration_declined": self.legacy_migration_declined,
+            "active_session": self.active_session.to_dict() if self.active_session else None,
         }
 
 
@@ -94,6 +117,29 @@ def _schema_version(data: dict[str, Any]) -> int:
     return raw
 
 
+def _active_session(data: dict[str, Any]) -> ActiveSession | None:
+    raw = data.get("active_session")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("El campo active_session no es un objeto JSON.")
+
+    session_id = raw.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ConfigError("La sesión guardada no tiene un identificador válido.")
+
+    title = raw.get("title", "")
+    started_at = raw.get("started_at", "")
+    if not isinstance(title, str) or not isinstance(started_at, str):
+        raise ConfigError("Los datos de la sesión guardada no son válidos.")
+
+    return ActiveSession(
+        session_id=session_id.strip(),
+        title=title,
+        started_at=started_at,
+    )
+
+
 def _parse_config(data: Any) -> ConfigLoadResult:
     if not isinstance(data, dict):
         raise ConfigError("La configuración debe ser un objeto JSON.")
@@ -106,6 +152,7 @@ def _parse_config(data: Any) -> ConfigLoadResult:
 
     suppress = _bool_value(data, "suppress_donation_reminder", False)
     declined = _bool_value(data, "legacy_migration_declined", False)
+    session = _active_session(data)
 
     legacy_token = data.get("token")
     if legacy_token is not None and not isinstance(legacy_token, str):
@@ -119,6 +166,7 @@ def _parse_config(data: Any) -> ConfigLoadResult:
         audience_type=str(audience_type),
         suppress_donation_reminder=suppress,
         legacy_migration_declined=declined,
+        active_session=session,
     )
     return ConfigLoadResult(
         config=config,

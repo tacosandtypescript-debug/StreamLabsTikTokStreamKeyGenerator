@@ -36,11 +36,22 @@ body:
       render: bash
     validations:
       required: false
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: "Token check"
+      description: "Your Streamlabs token can start and stop live streams on your TikTok account. See SECURITY.md."
+      options:
+        - label: "I have not included my Streamlabs token, my stream key, or a screenshot showing them."
+          required: true
   - type: textarea
     id: logs
     attributes:
       label: "Logs"
-      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      description: |
+        Paste the application log, which you can open with the "Logs" button. It contains no tokens,
+        authorization codes or stream keys. If you paste anything else (console output, config.json),
+        remove your token and stream key first.
       render: bash
     validations:
       required: false

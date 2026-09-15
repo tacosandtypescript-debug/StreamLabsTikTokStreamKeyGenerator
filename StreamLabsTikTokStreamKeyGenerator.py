@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import platform
-import re
 import sys
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -30,39 +32,54 @@ from PySide6.QtWidgets import (
 )
 
 from config_store import (
+    ActiveSession,
     AppConfig,
     ConfigError,
     ConfigLoadResult,
     ConfigStore,
     read_config_file,
 )
+from errors import safe_error_message
+from local_token import LocalTokenUnsupportedError, find_local_token, local_token_hint
+from logging_setup import configure_logging, log_directory, log_file_path
 from secure_store import SecureTokenStore, TokenStoreUnavailable
 from streamlabs_client import (
     AccountInfo,
     Category,
-    StreamlabsError,
     StreamlabsTikTokClient,
     StreamSession,
 )
 from TokenRetriever import TokenRetrievalError, TokenRetriever
-from Updater import VersionChecker
+from Updater import (
+    DownloadCancelled,
+    VersionChecker,
+    default_download_dir,
+    download_asset,
+    fetch_checksum,
+    select_asset,
+)
+from version import __version__
 from workers import Worker
 
 LOGGER = logging.getLogger(__name__)
-TOKEN_PATTERN = re.compile(rb'"apiToken"\s*:\s*"([a-f0-9]{16,})"', re.IGNORECASE)
-MAX_TOKEN_FILE_BYTES = 25 * 1024 * 1024
 
-
-class LocalTokenUnsupportedError(RuntimeError):
-    """Raised when Streamlabs local data is not available on this OS."""
+# Re-exported for forks that imported it from this module.
+__all__ = ["LocalTokenUnsupportedError", "StreamApp"]
 
 
 class StreamApp(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        config_store: ConfigStore | None = None,
+        token_store: SecureTokenStore | None = None,
+    ) -> None:
         super().__init__()
         self.thread_pool = QThreadPool(self)
-        self.config_store = ConfigStore()
-        self.token_store = SecureTokenStore()
+        # Injection points: tests pass a temporary configuration store and a
+        # fake keyring backend instead of touching the real user environment.
+        self.config_store = config_store or ConfigStore()
+        self.token_store = token_store or SecureTokenStore()
         self.config = AppConfig()
         self.suppress_donation_reminder = False
         self._loading_config = False
@@ -74,6 +91,14 @@ class StreamApp(QMainWindow):
         self._validated_token: str | None = None
         self._category_id = ""
         self._active_session: StreamSession | None = None
+        self._session_record: ActiveSession | None = None
+        self._session_prompted = False
+        self._closing = False
+        self._deferred_timers: set[QTimer] = set()
+        # Qt does not keep the Python object of a QRunnable alive while the pool
+        # runs it, so the application must hold a reference itself.
+        self._workers: set[Worker] = set()
+        self._download_cancel = threading.Event()
         self._busy_operations: set[str] = set()
         self._search_serial = 0
         self._search_timer = QTimer(self)
@@ -89,7 +114,7 @@ class StreamApp(QMainWindow):
 
         self.init_ui()
         self.load_config()
-        QTimer.singleShot(0, self._finish_startup)
+        self._defer(0, self._finish_startup)
 
     def init_ui(self) -> None:
         self.setWindowTitle("StreamLabs TikTok Stream Key Generator")
@@ -277,6 +302,11 @@ class StreamApp(QMainWindow):
         self.help_btn.clicked.connect(lambda _checked=False: self.show_help())
         bottom_buttons.addWidget(self.help_btn)
 
+        self.logs_btn = QPushButton("Logs")
+        self.logs_btn.setToolTip("Abrir la carpeta de registros de la aplicación")
+        self.logs_btn.clicked.connect(lambda _checked=False: self.open_logs_folder())
+        bottom_buttons.addWidget(self.logs_btn)
+
         self.donate_btn = QPushButton("☕ Donate")
         self.donate_btn.setToolTip("Support the developer")
         self.donate_btn.clicked.connect(
@@ -290,13 +320,29 @@ class StreamApp(QMainWindow):
 
         self._set_status("Sin token")
 
+    def _defer(self, milliseconds: int, callback: Callable[[], None]) -> None:
+        """Run ``callback`` later, tied to the lifetime of this window.
+
+        ``QTimer.singleShot`` keeps the callback alive even after the window is
+        destroyed, which then runs against deleted C++ objects. A timer
+        parented to the window is destroyed together with it.
+        """
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(milliseconds)
+        timer.timeout.connect(callback)
+        timer.timeout.connect(lambda: self._deferred_timers.discard(timer))
+        self._deferred_timers.add(timer)
+        timer.start()
+
     def load_config(self) -> None:
         try:
             result = self.config_store.load()
         except ConfigError as exc:
             LOGGER.warning("Configuration could not be loaded: %s", type(exc).__name__)
             result = ConfigLoadResult(config=AppConfig())
-            QTimer.singleShot(
+            self._defer(
                 0,
                 lambda: QMessageBox.warning(
                     self,
@@ -307,6 +353,7 @@ class StreamApp(QMainWindow):
 
         self.config = result.config
         self._apply_config(result.config)
+        self._session_record = result.config.active_session
 
         # Files written by older versions may still hold a plaintext token, so
         # they are inspected even when a current configuration already exists.
@@ -347,7 +394,117 @@ class StreamApp(QMainWindow):
         elif self.token_entry.text():
             self.refresh_account_info(silent=True)
 
-        QTimer.singleShot(3000, self._show_donation_and_schedule_update)
+        self._check_pending_session()
+        self._defer(3000, self._show_donation_and_schedule_update)
+
+    # ------------------------------------------------------------------ #
+    #  Sessions left behind by an earlier run                             #
+    # ------------------------------------------------------------------ #
+
+    def _check_pending_session(self) -> None:
+        """Warn about a Streamlabs session that a previous run never closed."""
+
+        if self._session_record is None or self._session_prompted:
+            return
+        if not self.token_entry.text().strip():
+            self._set_status("Hay una sesión anterior sin cerrar; carga un token para cerrarla")
+            return
+        self._prompt_pending_session()
+
+    def _prompt_pending_session(self) -> None:
+        record = self._session_record
+        if record is None:
+            return
+        self._session_prompted = True
+
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("Sesión anterior sin cerrar")
+        message.setText(
+            "La aplicación se cerró con una sesión de Streamlabs sin terminar.\n\n"
+            f"Título: {record.title or '(sin título)'}\n"
+            f"Iniciada: {record.started_at or 'fecha desconocida'}\n\n"
+            "Si esa sesión sigue abierta, TikTok puede rechazar un nuevo directo. "
+            "¿Quieres cerrarla ahora?"
+        )
+        close_btn = message.addButton("Cerrar la sesión", QMessageBox.ButtonRole.AcceptRole)
+        forget_btn = message.addButton(
+            "Olvidar el registro", QMessageBox.ButtonRole.DestructiveRole
+        )
+        message.addButton("Más tarde", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(close_btn)
+        message.exec()
+        clicked = message.clickedButton()
+
+        if clicked is forget_btn:
+            choice = "forget"
+        elif clicked is close_btn:
+            choice = "close"
+        else:
+            choice = "later"
+        self._handle_pending_session_choice(choice)
+
+    def _handle_pending_session_choice(self, choice: str) -> None:
+        """Apply the decision about a session recorded by an earlier run.
+
+        Kept separate from the dialog so it can be tested without widgets.
+        """
+
+        if choice == "forget":
+            self._forget_session_record()
+            return
+        if choice != "close":
+            self._set_status("Sesión anterior pendiente de cerrar")
+            return
+
+        token = self._validated_token
+        if not token:
+            self._session_prompted = False
+            self._set_status("Valida el token para poder cerrar la sesión anterior")
+            return
+        self._close_recorded_session(token)
+
+    def _forget_session_record(self) -> None:
+        self._session_record = None
+        self.save_config(False)
+        LOGGER.info("Recorded Streamlabs session discarded by the user")
+        self._set_status("Registro de sesión descartado")
+
+    def _close_recorded_session(self, token: str) -> None:
+        record = self._session_record
+        if record is None:
+            return
+        session_id = record.session_id
+        self._set_operation_busy("end", True)
+
+        def work() -> None:
+            StreamlabsTikTokClient(token).end_stream(session_id)
+
+        def done(_: Any = None) -> None:
+            self._session_record = None
+            self._active_session = None
+            self.save_config(False)
+            self._update_controls()
+            LOGGER.info("Leftover Streamlabs session closed")
+            QMessageBox.information(
+                self,
+                "Sesión anterior",
+                "La sesión anterior se cerró correctamente.",
+            )
+
+        def failed(exc: Exception) -> None:
+            # Streamlabs no longer knows about it, so the record is stale.
+            self._session_record = None
+            self.save_config(False)
+            self._update_controls()
+            LOGGER.warning("Leftover session could not be closed: %s", type(exc).__name__)
+            QMessageBox.warning(
+                self,
+                "Sesión anterior",
+                f"{safe_error_message(exc)}\n\nSe ha descartado el registro.",
+            )
+
+        self._run_worker(work, done, failed, lambda: self._set_operation_busy("end", False))
 
     def _apply_config(self, config: AppConfig) -> None:
         self._loading_config = True
@@ -367,6 +524,7 @@ class StreamApp(QMainWindow):
             audience_type="1" if self.mature_checkbox.isChecked() else "0",
             suppress_donation_reminder=self.suppress_donation_reminder,
             legacy_migration_declined=self._legacy_migration_declined,
+            active_session=self._session_record,
         )
 
     def save_config(self, show_message: bool = True) -> bool:
@@ -464,34 +622,38 @@ class StreamApp(QMainWindow):
         self.app_status.setText(info.application_status)
         self.can_go_live.setText(str(info.can_be_live))
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para Go Live")
+        LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
         self._update_controls()
+        if self._session_record is not None and not self._session_prompted:
+            self._prompt_pending_session()
         if self.game_category.text().strip():
             self.fetch_game_mask_id(self.game_category.text().strip())
 
     def _account_failed(self, token: str, exc: Exception, silent: bool) -> None:
         if token != self.token_entry.text().strip():
             return
+        LOGGER.warning("Account validation failed: %s", type(exc).__name__)
         self._account_info = None
         self._validated_token = None
         self.tiktok_username.clear()
         self.app_status.clear()
         self.can_go_live.clear()
-        self._set_status(self._safe_error_message(exc))
+        self._set_status(safe_error_message(exc))
         self._update_controls()
         if not silent:
-            QMessageBox.critical(self, "Account error", self._safe_error_message(exc))
+            QMessageBox.critical(self, "Account error", safe_error_message(exc))
 
     def load_local_token(self) -> None:
         self._set_operation_busy("local", True)
         self.load_local_btn.setText("Searching…")
 
         self._run_worker(
-            self._find_local_token,
+            find_local_token,
             self._local_token_loaded,
             lambda exc: QMessageBox.warning(
                 self,
                 "Local token",
-                self._safe_error_message(exc),
+                safe_error_message(exc),
             ),
             lambda: (
                 self._set_operation_busy("local", False),
@@ -501,57 +663,15 @@ class StreamApp(QMainWindow):
 
     @staticmethod
     def _find_local_token() -> str | None:
-        if platform.system() == "Windows":
-            appdata = os.environ.get("APPDATA")
-            if not appdata:
-                raise LocalTokenUnsupportedError("No se encontró la carpeta AppData.")
-            base = Path(appdata) / "slobs-client" / "Local Storage" / "leveldb"
-        elif platform.system() == "Darwin":
-            base = (
-                Path.home()
-                / "Library"
-                / "Application Support"
-                / "slobs-client"
-                / "Local Storage"
-                / "leveldb"
-            )
-        else:
-            raise LocalTokenUnsupportedError(
-                "La importación local está disponible en Windows y macOS; "
-                "usa Login from Web en Linux."
-            )
+        """Deprecated alias for :func:`local_token.find_local_token`."""
 
-        if not base.is_dir():
-            return None
-
-        files = [
-            file
-            for pattern in ("*.log", "*.ldb")
-            for file in base.glob(pattern)
-            if file.is_file()
-        ]
-        files.sort(key=lambda file: file.stat().st_mtime, reverse=True)
-        for file in files:
-            try:
-                if file.stat().st_size > MAX_TOKEN_FILE_BYTES:
-                    continue
-                content = file.read_bytes()
-            except OSError:
-                continue
-            for match in reversed(TOKEN_PATTERN.findall(content)):
-                token = match.decode("ascii", errors="ignore").strip()
-                if token:
-                    return token
-        return None
+        return find_local_token()
 
     def _local_token_loaded(self, token: str | None) -> None:
         if not token:
-            QMessageBox.warning(
-                self,
-                "Local token",
-                "No se encontró un token en los datos locales de Streamlabs.",
-            )
+            QMessageBox.warning(self, "Local token", local_token_hint())
             return
+        LOGGER.info("Token read from the Streamlabs local storage")
         self._apply_retrieved_token(token)
 
     def fetch_online_token(self) -> None:
@@ -578,7 +698,7 @@ class StreamApp(QMainWindow):
             lambda exc: QMessageBox.critical(
                 self,
                 "Web login",
-                self._safe_error_message(exc),
+                safe_error_message(exc),
             ),
             finished,
         )
@@ -668,7 +788,7 @@ class StreamApp(QMainWindow):
         if serial != self._search_serial:
             return
         self.suggestions_list.hide()
-        self._set_status(self._safe_error_message(exc))
+        self._set_status(safe_error_message(exc))
         self._update_controls()
 
     def update_suggestions_list(self, categories: list[Category]) -> None:
@@ -715,13 +835,23 @@ class StreamApp(QMainWindow):
             lambda exc: QMessageBox.critical(
                 self,
                 "Start stream",
-                self._safe_error_message(exc),
+                safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("start", False),
         )
 
     def _stream_started(self, session: StreamSession) -> None:
         self._active_session = session
+        # Persist the session id: if the application or the machine dies now,
+        # the next run can offer to close the session it left behind.
+        self._session_record = ActiveSession(
+            session_id=session.session_id,
+            title=self.stream_title.text().strip(),
+            started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+        self._session_prompted = True
+        self.save_config(False)
+        LOGGER.info("Streamlabs session started (id=%s)", session.session_id)
         self.stream_url.setText(session.rtmp_url)
         self.stream_key.setText(session.stream_key)
         self._set_status("Sesión preparada; configura OBS")
@@ -749,13 +879,16 @@ class StreamApp(QMainWindow):
             lambda exc: QMessageBox.critical(
                 self,
                 "End stream",
-                self._safe_error_message(exc),
+                safe_error_message(exc),
             ),
             lambda: self._set_operation_busy("end", False),
         )
 
     def _stream_ended(self, _: Any = None) -> None:
         self._active_session = None
+        self._session_record = None
+        self.save_config(False)
+        LOGGER.info("Streamlabs session ended")
         self.stream_url.clear()
         self.stream_key.clear()
         self._set_status("Cuenta validada")
@@ -790,12 +923,13 @@ class StreamApp(QMainWindow):
         self._clipboard_value = None
 
     def _prompt_legacy_migration(self) -> None:
+        """Ask what to do with a plaintext token found in an old config file."""
+
         if not self._pending_legacy:
             return
         legacy_path, result = self._pending_legacy
         self._pending_legacy = None
-        token = result.legacy_token
-        if not token:
+        if not result.legacy_token:
             return
 
         message = QMessageBox(self)
@@ -818,16 +952,40 @@ class StreamApp(QMainWindow):
         clicked = message.clickedButton()
 
         if clicked is delete_btn:
+            choice = "delete"
+        elif clicked is import_btn:
+            choice = "import"
+        else:
+            # "Ahora no", Escape, or the window close button.
+            choice = "decline"
+        self._handle_legacy_choice(choice, legacy_path, result)
+
+    def _handle_legacy_choice(
+        self,
+        choice: str,
+        legacy_path: Path,
+        result: ConfigLoadResult,
+    ) -> None:
+        """Apply the decision about a legacy plaintext token.
+
+        Kept separate from the dialog so the security-relevant behaviour (a
+        plaintext token is never loaded unless the user asked for it) can be
+        tested without touching modal widgets.
+        """
+
+        token = result.legacy_token
+        if choice == "delete":
             self._delete_legacy_file(legacy_path)
             self.token_entry.clear()
+            LOGGER.info("Legacy plaintext configuration deleted")
             self._set_status("Token antiguo eliminado")
             return
 
-        if clicked is not import_btn:
-            # "Ahora no", Escape, or closing the dialog: a plaintext token is
-            # never loaded unless the user explicitly asked for it, and the
-            # decision is remembered so the prompt does not come back.
+        if choice != "import" or not token:
+            # The decision is remembered so the prompt does not come back on
+            # every launch.
             self._remember_declined_migration()
+            LOGGER.info("Legacy plaintext token left in place at user request")
             self._set_status("Token antiguo no importado")
             return
 
@@ -835,11 +993,13 @@ class StreamApp(QMainWindow):
             self.token_store.save_token(token)
             self._secure_store_available = True
         except TokenStoreUnavailable as exc:
-            QMessageBox.warning(self, "Migration", self._safe_error_message(exc))
+            QMessageBox.warning(self, "Migration", safe_error_message(exc))
             self._remember_declined_migration()
+            LOGGER.warning("Legacy token could not be stored securely")
         else:
             self._rewrite_legacy_without_token(legacy_path, result.config)
             self.save_config(False)
+            LOGGER.info("Legacy plaintext token migrated to the credential store")
 
         self._set_token(token)
         self.refresh_account_info(silent=True)
@@ -871,24 +1031,50 @@ class StreamApp(QMainWindow):
         on_result: Callable[[Any], None],
         on_error: Callable[[Exception], None] | None = None,
         on_finished: Callable[[], None] | None = None,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> None:
         worker = Worker(function)
+        self._workers.add(worker)
         # A queued connection is required here: these callbacks are plain
         # functions and lambdas with no thread affinity, so Qt would otherwise
         # invoke them directly on the worker thread and touch the GUI from it.
         queued = Qt.ConnectionType.QueuedConnection
-        worker.signals.result.connect(on_result, queued)
+
+        def guard(callback: Callable[..., None]) -> Callable[..., None]:
+            """Never run a worker callback against a closed window.
+
+            A queued call can still be delivered while the window is being
+            destroyed, and touching its widgets then crashes the process.
+            """
+
+            def wrapped(*args: Any) -> None:
+                if self._closing:
+                    LOGGER.debug("Dropped a worker callback after close")
+                    return
+                callback(*args)
+
+            return wrapped
+
+        if on_progress is not None:
+            # Worker forwards keyword arguments to the callable, so the long
+            # running function receives a reporter bound to the queued progress
+            # signal: the dialog is only ever touched from the GUI thread.
+            worker.kwargs["progress"] = worker.signals.progress.emit
+            worker.signals.progress.connect(guard(on_progress), queued)
+        worker.signals.result.connect(guard(on_result), queued)
 
         def handle_error(exc: Exception) -> None:
             LOGGER.debug("Background operation failed: %s", type(exc).__name__)
             if on_error:
                 on_error(exc)
             else:
-                QMessageBox.critical(self, "Error", self._safe_error_message(exc))
+                QMessageBox.critical(self, "Error", safe_error_message(exc))
 
-        worker.signals.error.connect(handle_error, queued)
+        worker.signals.error.connect(guard(handle_error), queued)
         if on_finished:
-            worker.signals.finished.connect(on_finished, queued)
+            worker.signals.finished.connect(guard(on_finished), queued)
+        worker.signals.finished.connect(guard(lambda: self._workers.discard(worker)), queued)
         self.thread_pool.start(worker)
 
     def _set_operation_busy(self, operation: str, busy: bool) -> None:
@@ -949,23 +1135,13 @@ class StreamApp(QMainWindow):
 
     @staticmethod
     def _safe_error_message(exc: Exception) -> str:
-        if isinstance(
-            exc,
-            (
-                ValueError,
-                ConfigError,
-                TokenStoreUnavailable,
-                TokenRetrievalError,
-                StreamlabsError,
-                LocalTokenUnsupportedError,
-            ),
-        ):
-            return str(exc)
-        return "La operación no pudo completarse. Revisa la conexión y vuelve a intentarlo."
+        """Deprecated alias for :func:`errors.safe_error_message`."""
+
+        return safe_error_message(exc)
 
     def _show_donation_and_schedule_update(self) -> None:
         self.show_donation_reminder()
-        QTimer.singleShot(3000, self.check_updates_on_startup)
+        self._defer(3000, self.check_updates_on_startup)
 
     def show_donation_reminder(self) -> None:
         if self.suppress_donation_reminder:
@@ -995,20 +1171,136 @@ class StreamApp(QMainWindow):
             lambda exc: LOGGER.debug("Update check failed: %s", type(exc).__name__),
         )
 
-    def _show_update_if_available(self, update_info: dict[str, str] | None) -> None:
+    def _show_update_if_available(self, update_info: dict[str, Any] | None) -> None:
         if not update_info:
             return
         message = QMessageBox(self)
         message.setWindowTitle("Update Available")
         message.setText(
-            f"Version {update_info['latest']} is available!\n\n"
-            f"Current version: {update_info['current']}\n\n"
-            "Would you like to open the release page?"
+            f"La versión {update_info['latest']} está disponible "
+            f"(tienes la {update_info['current']}).\n\n"
+            "Puedes descargarla desde aquí: se guardará en tu carpeta de descargas y "
+            "se comprobará su checksum. La aplicación no ejecuta ni instala nada."
         )
-        message.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        message.setDefaultButton(QMessageBox.StandardButton.Yes)
-        if message.exec() == QMessageBox.StandardButton.Yes:
-            QDesktopServices.openUrl(QUrl(update_info["url"]))
+        download_btn = message.addButton("Descargar", QMessageBox.ButtonRole.AcceptRole)
+        page_btn = message.addButton(
+            "Abrir la página del release", QMessageBox.ButtonRole.ActionRole
+        )
+        message.addButton("Ahora no", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(download_btn)
+        message.exec()
+        clicked = message.clickedButton()
+
+        if clicked is download_btn:
+            self._download_update(update_info)
+        elif clicked is page_btn:
+            QDesktopServices.openUrl(QUrl(str(update_info["url"])))
+
+    def _download_update(self, update_info: dict[str, Any]) -> None:
+        """Download the release package for this platform and verify it."""
+
+        asset = select_asset(
+            update_info.get("assets") or [],
+            platform.system(),
+            platform.machine(),
+        )
+        if asset is None:
+            LOGGER.warning("No release asset matches this platform")
+            QMessageBox.warning(
+                self,
+                "Actualización",
+                "Esta release no incluye un paquete para tu sistema. Se abrirá la "
+                "página del release para que lo elijas a mano.",
+            )
+            QDesktopServices.openUrl(QUrl(str(update_info["url"])))
+            return
+
+        asset_name = str(asset["name"])
+        destination = default_download_dir() / asset_name
+        checksums_url = update_info.get("checksums_url")
+        self._download_cancel = threading.Event()
+        self._set_operation_busy("download", True)
+        LOGGER.info("Downloading update asset %s", asset_name)
+
+        progress = QProgressDialog(
+            f"Descargando {asset_name}…",
+            "Cancelar",
+            0,
+            100,
+            self,
+        )
+        progress.setWindowTitle("Actualización")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.canceled.connect(self._download_cancel.set)
+
+        def report(done_bytes: int, total_bytes: int) -> None:
+            if total_bytes > 0:
+                progress.setValue(min(100, int(done_bytes * 100 / total_bytes)))
+            else:
+                progress.setLabelText(
+                    f"Descargando {asset_name}… ({done_bytes // 1048576} MB)"
+                )
+
+        def work(progress=None) -> Path:
+            expected = None
+            if checksums_url:
+                expected = fetch_checksum(str(checksums_url), asset_name)
+                if expected is None:
+                    LOGGER.warning("The release published no checksum for this asset")
+            return download_asset(
+                str(asset["url"]),
+                destination,
+                expected_sha256=expected,
+                on_progress=progress,
+                cancel=self._download_cancel,
+            )
+
+        def done(path: Path) -> None:
+            progress.close()
+            LOGGER.info("Update downloaded to %s", path)
+            QMessageBox.information(
+                self,
+                "Actualización descargada",
+                f"Guardada en:\n{path}\n\n"
+                "El checksum se ha verificado. Cierra esta aplicación y ejecuta el "
+                "archivo cuando quieras: no se instala nada automáticamente.",
+            )
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+
+        def failed(exc: Exception) -> None:
+            progress.close()
+            if isinstance(exc, DownloadCancelled):
+                self._set_status("Descarga cancelada")
+                return
+            LOGGER.warning("Update download failed: %s", type(exc).__name__)
+            QMessageBox.critical(self, "Actualización", safe_error_message(exc))
+
+        self._run_worker(
+            work,
+            done,
+            failed,
+            lambda: self._set_operation_busy("download", False),
+            on_progress=report,
+        )
+
+    def open_logs_folder(self) -> None:
+        """Open the folder that holds the application log file."""
+
+        directory = log_directory()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Logs",
+                f"No se pudo abrir la carpeta de registros: {exc}",
+            )
+            return
+        LOGGER.debug("Opening %s (log file %s)", directory, log_file_path())
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
 
     def show_help(self) -> None:
         help_text = (
@@ -1027,25 +1319,41 @@ class StreamApp(QMainWindow):
         self.refresh_account_info(silent=True)
 
     def closeEvent(self, event: Any) -> None:
+        # From here on, worker callbacks and deferred work must not touch the
+        # widgets: Qt may deliver queued calls while the window is destroyed.
+        self._closing = True
         if self._active_session:
             QMessageBox.warning(
                 self,
                 "Active session",
-                "La sesión de Streamlabs sigue activa. Comprueba OBS antes de cerrar.",
+                "La sesión de Streamlabs sigue activa. Comprueba OBS antes de cerrar.\n\n"
+                "Se ha guardado su identificador: al volver a abrir la aplicación "
+                "podrás cerrarla desde ahí.",
             )
         # A pending browser login would otherwise keep a pool thread waiting for
         # up to five minutes and delay process shutdown.
         if self._online_retriever is not None:
             self._online_retriever.cancel()
+        # Deferred work must not run against a closed window.
+        for timer in list(self._deferred_timers):
+            try:
+                timer.stop()
+            except RuntimeError:  # pragma: no cover - already destroyed
+                pass
+        self._deferred_timers.clear()
         self.thread_pool.clear()
         self._clear_sensitive_clipboard()
         event.accept()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=os.environ.get("STREAMLABS_KEYGEN_LOG_LEVEL", "WARNING").upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    log_path = configure_logging(os.environ.get("STREAMLABS_KEYGEN_LOG_LEVEL", "WARNING"))
+    LOGGER.info(
+        "Starting version %s on %s %s (log: %s)",
+        __version__,
+        platform.system(),
+        platform.release(),
+        log_path,
     )
     app = QApplication(sys.argv)
     window = StreamApp()

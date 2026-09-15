@@ -5,6 +5,7 @@ import pytest
 from config_store import (
     CURRENT_SCHEMA_VERSION,
     LEGACY_SCHEMA_VERSION,
+    ActiveSession,
     AppConfig,
     ConfigError,
     ConfigStore,
@@ -120,3 +121,52 @@ def test_declined_migration_preference_round_trips(tmp_path):
     ConfigStore(path).save(AppConfig(legacy_migration_declined=True))
 
     assert read_config_file(path).config.legacy_migration_declined is True
+
+
+def test_active_session_round_trips(tmp_path):
+    path = tmp_path / "config.json"
+    session = ActiveSession("session-1", "My title", "2026-01-01T00:00:00+00:00")
+    ConfigStore(path).save(AppConfig(active_session=session))
+
+    assert read_config_file(path).config.active_session == session
+
+
+def test_saved_session_holds_no_secret(tmp_path):
+    path = tmp_path / "config.json"
+    ConfigStore(path).save(
+        AppConfig(active_session=ActiveSession("session-1", "Title", "2026-01-01"))
+    )
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "token" not in data
+    assert data["active_session"] == {
+        "session_id": "session-1",
+        "title": "Title",
+        "started_at": "2026-01-01",
+    }
+
+
+def test_missing_session_is_none(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"title": "x"}), encoding="utf-8")
+
+    assert read_config_file(path).config.active_session is None
+
+
+def test_session_without_id_is_rejected(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"active_session": {"title": "x"}}), encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        read_config_file(path)
+
+
+def test_session_with_wrong_types_is_rejected(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"active_session": {"session_id": "s", "title": 5}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError):
+        read_config_file(path)

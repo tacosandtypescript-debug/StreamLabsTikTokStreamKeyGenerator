@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 class WorkerSignals(QObject):
     result = Signal(object)
     error = Signal(object)
+    progress = Signal(int, int)
     finished = Signal()
 
 
@@ -21,6 +22,11 @@ class Worker(QRunnable):
     ``Qt.ConnectionType.QueuedConnection``: with no receiver QObject, Qt
     invokes such slots directly on the worker thread, which would touch the
     GUI from outside the main thread.
+
+    Extra keyword arguments are forwarded to the callable, which is how a long
+    running function receives a ``progress(bytes_done, bytes_total)`` reporter:
+    workers that need it are built first and get ``kwargs["progress"]`` bound to
+    ``signals.progress.emit``.
     """
 
     def __init__(self, function: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
