@@ -10,7 +10,7 @@ from PySide6.QtGui import QCloseEvent
 import StreamLabsTikTokStreamKeyGenerator as application
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
-from streamlabs_client import AccountInfo, StreamSession, StreamlabsError
+from streamlabs_client import AccountInfo, StreamlabsError, StreamSession
 
 
 class FakeBackend:

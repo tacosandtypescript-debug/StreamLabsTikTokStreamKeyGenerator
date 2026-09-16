@@ -12,7 +12,6 @@ from urllib.parse import quote
 
 import requests
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -344,7 +343,7 @@ class StreamlabsTikTokClient:
         if not all(isinstance(value, str) and value for value in values):
             missing = ",".join(
                 name
-                for name, value in zip(("id", "rtmp", "key"), values)
+                for name, value in zip(("id", "rtmp", "key"), values, strict=True)
                 if not isinstance(value, str) or not value
             )
             LOGGER.warning(
