@@ -23,7 +23,15 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -55,6 +63,8 @@ AVATAR_COLORS = (
     "#4d7c0f",
     "#a21caf",
 )
+# The ring around the account picture echoes the two accent colours of the icon.
+AVATAR_RING_COLORS = ("#25f4ee", "#fe2c55")
 # QWidget's "no maximum" value, used when a section must not clip its content.
 UNLIMITED_HEIGHT = 16777215
 
@@ -210,9 +220,16 @@ class AvatarLabel(QWidget):
     different accounts are told apart at a glance.
     """
 
-    def __init__(self, size: int = 28, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        size: int = 28,
+        parent: QWidget | None = None,
+        *,
+        ring: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._size = size
+        self._ring = ring
         self._username = ""
         self._pixmap = None
         self.setFixedSize(size, size)
@@ -273,9 +290,101 @@ class AvatarLabel(QWidget):
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.initial() or "?")
 
         painter.setClipping(False)
-        painter.setPen(QPen(QColor(color_tokens(current_theme())["border"]), 1))
-        painter.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+        if self._ring:
+            # A gradient ring, like the one the network itself draws: the picture
+            # is the account's, and the ring says "this is a profile".
+            gradient = QConicalGradient(rect.center(), 90)
+            gradient.setColorAt(0.0, QColor(AVATAR_RING_COLORS[0]))
+            gradient.setColorAt(0.25, QColor(AVATAR_RING_COLORS[1]))
+            gradient.setColorAt(0.5, QColor(AVATAR_RING_COLORS[0]))
+            gradient.setColorAt(0.75, QColor(AVATAR_RING_COLORS[1]))
+            gradient.setColorAt(1.0, QColor(AVATAR_RING_COLORS[0]))
+            pen = QPen(QBrush(gradient), 3)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+        else:
+            painter.setPen(QPen(QColor(color_tokens(current_theme())["border"]), 1))
+            painter.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
         painter.end()
+
+
+class ProfileCard(QWidget):
+    """The account header: picture with a ring, name, numbers and biography.
+
+    Modelled on the network's own profile header, without any of its social
+    actions: from this window there is nothing to follow, message or share. Every
+    field is optional and hidden when unknown, so nothing is ever invented.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        self.avatar = AvatarLabel(72, ring=True)
+        self.avatar.set_username("")
+        layout.addWidget(self.avatar, 0, Qt.AlignmentFlag.AlignTop)
+
+        column = QVBoxLayout()
+        column.setSpacing(2)
+        self.name_label = QLabel(self)
+        self.name_label.setObjectName("profileName")
+        self.handle_label = QLabel(self)
+        self.handle_label.setObjectName("cardSummary")
+        self.stats_label = QLabel(self)
+        self.stats_label.setObjectName("profileStats")
+        self.bio_label = QLabel(self)
+        self.bio_label.setObjectName("muted")
+        self.bio_label.setWordWrap(True)
+        column.addWidget(self.name_label)
+        column.addWidget(self.handle_label)
+        column.addWidget(self.stats_label)
+        column.addSpacing(4)
+        column.addWidget(self.bio_label)
+        column.addStretch(1)
+        layout.addLayout(column, 1)
+
+        self.set_profile("")
+
+    def set_profile(
+        self,
+        username: str,
+        *,
+        display_name: str = "",
+        followers: str = "",
+        likes: str = "",
+        bio: str = "",
+    ) -> None:
+        """Show what is known; anything empty is hidden rather than filled in."""
+
+        username = (username or "").strip().lstrip("@")
+        self.avatar.set_username(username)
+
+        handle = f"@{username}" if username else ""
+        self.name_label.setText(display_name or handle or "Sin cuenta")
+        # Two lines only when there is a name apart from the handle, as the
+        # network itself does.
+        self.handle_label.setText(handle if display_name else "")
+        self.handle_label.setVisible(bool(display_name and handle))
+
+        parts = []
+        if likes:
+            parts.append(f"{likes} me gusta")
+        if followers:
+            parts.append(f"{followers} seguidores")
+        self.stats_label.setText(" · ".join(parts))
+        self.stats_label.setVisible(bool(parts))
+
+        self.bio_label.setText(bio)
+        self.bio_label.setVisible(bool(bio))
+
+    def numbers_text(self) -> str:
+        return self.stats_label.text()
+
+    def bio_text(self) -> str:
+        return self.bio_label.text()
 
 
 class CopyField(QWidget):

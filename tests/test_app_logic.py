@@ -4,6 +4,8 @@ These run the real widgets offscreen (``QT_QPA_PLATFORM=offscreen`` in CI) and
 avoid every modal dialog and network call, so they stay fast and deterministic.
 """
 
+import profile as profile_store
+import time
 import zipfile
 
 import pytest
@@ -94,6 +96,20 @@ def app(qtbot, store, backend, monkeypatch, tmp_path):
         application.avatar_store,
         "save_remote_avatar",
         lambda *args, **kwargs: application.avatar_store.avatar_path(),
+    )
+    # Neither the picture cache nor the profile cache may touch the real folder,
+    # and no test may reach the profile service.
+    monkeypatch.setattr(
+        application.profile_store,
+        "profile_path",
+        lambda: picture_directory / "profile.json",
+    )
+    monkeypatch.setattr(
+        application.profile_store,
+        "fetch_profile",
+        lambda *args, **kwargs: application.profile_store.Profile(
+            username=str(args[0] if args else ""),
+        ),
     )
     # No dialog may block a test.
     monkeypatch.setattr(application.QMessageBox, "exec", lambda self: 0)
@@ -730,7 +746,6 @@ def test_the_live_permission_is_never_shown_as_a_python_boolean(app):
 def test_a_validated_account_never_leaves_the_boolean_on_screen(app):
     _validated(app)
 
-    app.tiktok_username.setText("creator")
     app._set_can_go_live(app._account_info.can_be_live)
 
     assert "True" not in app.can_go_live.text()
@@ -878,7 +893,7 @@ def test_validating_the_account_fills_the_avatar_and_the_audience(app):
     app._account_loaded("token-value", info)
 
     assert app.avatar.initial() == "C"
-    assert app.avatar_big.initial() == "C"
+    assert app.profile_card.avatar.initial() == "C"
     assert app.avatar.isHidden() is False
     assert "Adult Only" in app.mature_checkbox.toolTip()
 
@@ -891,7 +906,7 @@ def test_the_account_name_is_remembered_between_runs(app, store, qtbot):
     second = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(second)
 
-    assert second.tiktok_username.text() == "creator"
+    assert second.profile_card.name_label.text() == "@creator"
     assert second.avatar.initial() == "C"
     assert second.avatar.isHidden() is False
 
@@ -903,8 +918,8 @@ def test_a_failed_validation_leaves_no_account_on_screen(app):
     app._account_failed("token-value", StreamlabsError("boom", status_code=500), silent=True)
 
     assert app.avatar.isHidden() is True
-    assert app.avatar_big.isHidden() is True
-    assert app.tiktok_username.text() == ""
+    assert app.profile_card.avatar.isHidden() is True
+    assert app.profile_card.name_label.text() == "Sin cuenta"
 
 
 def _chosen_image(tmp_path, name="elegida.png", size=80):
@@ -928,7 +943,7 @@ def test_choosing_a_picture_stores_it_and_shows_it(app, tmp_path, monkeypatch):
 
     assert avatar_store.has_avatar() is True
     assert app.avatar.has_picture() is True
-    assert app.avatar_big.has_picture() is True
+    assert app.profile_card.avatar.has_picture() is True
     assert app.remove_avatar_btn.isEnabled() is True
     assert "actualizada" in app.app_status.text()
 
@@ -1119,6 +1134,94 @@ def test_the_photo_choice_survives_a_restart(app, store, qtbot, tmp_path, monkey
     qtbot.addWidget(second)
 
     assert second._avatar_source == "manual"
+
+
+# --------------------------------------------------------------------------- #
+#  Los datos públicos de la cuenta                                            #
+# --------------------------------------------------------------------------- #
+
+
+def _fresh_profile(**fields):
+    values = {"username": "creator", "fetched_at": time.time()}
+    values.update(fields)
+    return profile_store.Profile(**values)
+
+
+def test_the_public_numbers_come_from_the_cache_when_it_is_fresh(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_profile", lambda *args, **kwargs: fetched.append(args))
+    profile_store.save_cached_profile(
+        _fresh_profile(followers="1702", likes="123.5K", bio="Creador de Fortnite")
+    )
+
+    app._load_profile("creator")
+
+    assert fetched == []
+    assert app.profile_card.numbers_text() == "123.5K me gusta · 1702 seguidores"
+    assert app.profile_card.bio_text() == "Creador de Fortnite"
+
+
+def test_without_a_cache_the_numbers_are_fetched(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_profile", lambda *args, **kwargs: fetched.append(args))
+
+    app._load_profile("creator")
+
+    assert fetched
+
+
+def test_without_an_account_there_is_nothing_to_read(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_profile", lambda *args, **kwargs: fetched.append(args))
+
+    app._load_profile("  ")
+
+    assert fetched == []
+
+
+def test_a_fetched_profile_fills_the_card_and_is_cached(app):
+    app._profile_fetched(_fresh_profile(followers="1702", likes="123.5K"), False)
+
+    assert app.profile_card.numbers_text() == "123.5K me gusta · 1702 seguidores"
+    cached = profile_store.load_cached_profile("creator")
+    assert cached is not None
+    assert cached.followers == "1702"
+
+
+def test_a_failed_profile_read_is_silent_and_keeps_the_header(app, monkeypatch):
+    dialogs = []
+    for name in ("warning", "critical", "information"):
+        monkeypatch.setattr(
+            application.QMessageBox,
+            name,
+            staticmethod(lambda *args, **kwargs: dialogs.append(args)),
+        )
+    app._show_username("creator")
+
+    app._profile_not_fetched(profile_store.ProfileError("sin datos"), True)
+
+    assert dialogs == []
+    assert "públicos" in app.app_status.text()
+    assert app.profile_card.name_label.text() == "@creator"
+
+
+def test_the_header_hides_what_it_does_not_know(app):
+    app._apply_profile(profile_store.Profile(username="creator"))
+
+    assert app.profile_card.numbers_text() == ""
+    assert app.profile_card.stats_label.isHidden() is True
+    assert app.profile_card.bio_label.isHidden() is True
+    assert app.profile_card.name_label.text() == "@creator"
+
+
+def test_asking_for_the_account_data_refreshes_the_numbers_too(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *a, **k: fetched.append("avatar"))
+    monkeypatch.setattr(app, "fetch_profile", lambda *a, **k: fetched.append("numbers"))
+
+    app.use_account_avatar()
+
+    assert fetched == ["avatar", "numbers"]
 
 
 # --------------------------------------------------------------------------- #

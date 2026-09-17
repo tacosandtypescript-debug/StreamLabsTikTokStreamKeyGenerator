@@ -34,10 +34,10 @@ from ui.icons import application_icon, eye_icon
 from ui.theme import color_tokens, current_theme
 from ui.widgets import (
     ANIMATION_MS,
-    AvatarLabel,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
+    ProfileCard,
     StateBanner,
 )
 
@@ -49,6 +49,8 @@ OUTER_MARGIN = 12
 # Narrower than this and an RTMP URL stops being readable, so the fixed width has
 # a floor even though Qt would happily shrink the window to its minimum.
 MINIMUM_CONTENT_WIDTH = 480
+# QWidget's "no limit", used while measuring the window again.
+UNLIMITED_SIZE = 16777215
 
 
 class WindowUiMixin:
@@ -129,15 +131,21 @@ class WindowUiMixin:
 
         Both pages are measured, so the taller one fits without clipping, and the
         size follows the system font: a large font gives a larger window instead
-        of cut-off labels.
+        of cut-off labels. It is called again when the profile arrives, and the
+        window has to be released first: ``adjustSize()`` cannot grow a window
+        whose maximum size was already fixed, which squashed the content instead.
         """
 
+        current = self.pages.currentIndex()
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(UNLIMITED_SIZE, UNLIMITED_SIZE)
         sizes = []
         for index in (PAGE_STREAM, PAGE_ACCOUNT):
             self.pages.setCurrentIndex(index)
             self.adjustSize()
             sizes.append(self.size())
-        self.pages.setCurrentIndex(PAGE_STREAM)
+        # Whatever page was on screen stays on screen.
+        self.pages.setCurrentIndex(current)
         self.setFixedSize(
             max(max(size.width() for size in sizes), MINIMUM_CONTENT_WIDTH),
             max(size.height() for size in sizes),
@@ -256,13 +264,15 @@ class WindowUiMixin:
         actions.addWidget(self.save_btn)
         layout.addLayout(actions)
 
+        # The link to the account page sits at the bottom, so the space the taller
+        # page forces on this one reads as a footer instead of a gap.
+        layout.addStretch(1)
         self.account_btn = QPushButton("Cuenta y token")
         self.account_btn.setObjectName("link")
         self.account_btn.setToolTip("Token de Streamlabs, usuario y permiso de emisión")
         self.account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.account_btn.clicked.connect(self.show_account_page)
         layout.addWidget(self.account_btn)
-        layout.addStretch(1)
         return page
 
     def _build_account_page(self) -> QWidget:
@@ -270,6 +280,48 @@ class WindowUiMixin:
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
+
+        header = QFrame()
+        header.setObjectName("card")
+        header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(14, 12, 14, 12)
+        header_layout.setSpacing(10)
+
+        self.profile_card = ProfileCard()
+        header_layout.addWidget(self.profile_card)
+
+        picture_row = QHBoxLayout()
+        picture_row.setSpacing(6)
+        self.use_avatar_btn = QPushButton("Usar la de la cuenta")
+        self.use_avatar_btn.setToolTip(
+            "Descarga la foto del perfil y las cifras públicas de la cuenta"
+        )
+        self.use_avatar_btn.clicked.connect(lambda _checked=False: self.use_account_avatar())
+        picture_row.addWidget(self.use_avatar_btn)
+
+        self.choose_avatar_btn = QPushButton("Elegir imagen…")
+        self.choose_avatar_btn.setToolTip(
+            "Usa una imagen tuya como foto de la cuenta; se guarda una copia reducida"
+        )
+        self.choose_avatar_btn.clicked.connect(lambda _checked=False: self.choose_avatar())
+        picture_row.addWidget(self.choose_avatar_btn)
+
+        self.remove_avatar_btn = QPushButton("Quitar")
+        self.remove_avatar_btn.setToolTip("Vuelve a mostrar la inicial del usuario")
+        self.remove_avatar_btn.clicked.connect(lambda _checked=False: self.remove_avatar())
+        picture_row.addWidget(self.remove_avatar_btn)
+        picture_row.addStretch(1)
+        header_layout.addLayout(picture_row)
+
+        credit = QLabel(
+            'Foto: <a href="https://unavatar.io">unavatar.io</a> · '
+            'perfil: <a href="https://microlink.io">microlink.io</a>'
+        )
+        credit.setObjectName("muted")
+        credit.setOpenExternalLinks(True)
+        header_layout.addWidget(credit)
+        layout.addWidget(header)
 
         token_card, token_layout = self._card("Cuenta de Streamlabs")
         self.token_entry = QLineEdit()
@@ -323,58 +375,20 @@ class WindowUiMixin:
         layout.addWidget(token_card)
 
         account_card, account_layout = self._card("Permiso de emisión")
-
-        identity = QHBoxLayout()
-        identity.setSpacing(12)
-        self.avatar_big = AvatarLabel(48)
-        self.avatar_big.set_username("")
-        identity.addWidget(self.avatar_big, 0, Qt.AlignmentFlag.AlignTop)
-
-        identity_text = QVBoxLayout()
-        identity_text.setSpacing(4)
-        self.tiktok_username = QLineEdit()
-        self.tiktok_username.setReadOnly(True)
-        self.tiktok_username.setPlaceholderText("Sin validar")
-        identity_text.addWidget(self._field_label("Usuario", self.tiktok_username))
-        identity_text.addWidget(self.tiktok_username)
-
+        live_row = QHBoxLayout()
+        live_row.setSpacing(8)
+        live_row.addWidget(self._field_label("Puede emitir"))
         self.can_go_live = QLabel("—")
         self.can_go_live.setObjectName("badge")
         self.can_go_live.setProperty("state", "neutral")
-        identity_text.addWidget(self._field_label("Puede emitir"))
-        identity_text.addWidget(self.can_go_live)
-        identity.addLayout(identity_text, 1)
-        account_layout.addLayout(identity)
+        live_row.addWidget(self.can_go_live)
+        live_row.addStretch(1)
+        account_layout.addLayout(live_row)
 
-        picture_row = QHBoxLayout()
-        picture_row.setSpacing(6)
-        self.use_avatar_btn = QPushButton("Usar la de la cuenta")
-        self.use_avatar_btn.setToolTip(
-            "Descarga la foto del perfil de TikTok a través de unavatar.io y la guarda"
-        )
-        self.use_avatar_btn.clicked.connect(lambda _checked=False: self.use_account_avatar())
-        picture_row.addWidget(self.use_avatar_btn)
-
-        self.choose_avatar_btn = QPushButton("Elegir imagen…")
-        self.choose_avatar_btn.setToolTip(
-            "Usa una imagen tuya como foto de la cuenta; se guarda una copia reducida"
-        )
-        self.choose_avatar_btn.clicked.connect(lambda _checked=False: self.choose_avatar())
-        picture_row.addWidget(self.choose_avatar_btn)
-
-        self.remove_avatar_btn = QPushButton("Quitar")
-        self.remove_avatar_btn.setToolTip("Vuelve a mostrar la inicial del usuario")
-        self.remove_avatar_btn.clicked.connect(lambda _checked=False: self.remove_avatar())
-        picture_row.addWidget(self.remove_avatar_btn)
-        picture_row.addStretch(1)
-        account_layout.addLayout(picture_row)
-
-        credit = QLabel(
-            'Foto de perfil: <a href="https://unavatar.io">unavatar.io</a>'
-        )
-        credit.setObjectName("muted")
-        credit.setOpenExternalLinks(True)
-        account_layout.addWidget(credit)
+        self.account_state = QLabel("")
+        self.account_state.setObjectName("muted")
+        self.account_state.setWordWrap(True)
+        account_layout.addWidget(self.account_state)
         layout.addWidget(account_card)
 
         hint = QLabel(

@@ -106,20 +106,31 @@ la aplicación, esa pantalla es la que aparece.
 
 ### La cuenta, su foto y sus datos
 
-En el banner y en la ficha de cuenta verás la **foto del perfil** de la cuenta. Se
-consigue a través de [unavatar.io](https://unavatar.io), un servicio abierto que agrega
-avatares de muchas redes: Streamlabs no publica el de la cuenta autorizada y TikTok
-solo sirve el suyo a un navegador de verdad, así que esta es la vía que funciona sin
-meter un navegador dentro de la aplicación.
+La pantalla **Cuenta y token** abre con la **cabecera del perfil**, como la de la propia
+red pero sin nada social: ni seguir, ni mensajes, ni compartir.
 
-- La imagen se **guarda en tu equipo** (256 px, en la carpeta de configuración) y solo
-  se consulta al servicio **cuando cambia la cuenta**: el plan gratuito permite 25
-  consultas al día, así que no se pide en cada arranque. Con **Usar la de la cuenta**
-  la fuerzas cuando quieras.
-- También puedes poner **una imagen tuya** con *Elegir imagen…*, y entonces no se
-  vuelve a consultar al servicio. **Quitar** vuelve a la inicial.
-- Si no hay foto, o el servicio no contesta, se dibuja un **círculo con tu inicial**
-  con un color que depende solo del nombre: dos cuentas nunca se confunden.
+Se rellena solo con lo que se puede comprobar, y lo que no se sabe **no se inventa**:
+
+| Dato | De dónde sale |
+|---|---|
+| Foto del perfil | [unavatar.io](https://unavatar.io), que la resuelve desde TikTok |
+| Me gusta y seguidores | [microlink.io](https://microlink.io), que lee el perfil público |
+| Nombre y `@usuario` | De Streamlabs, con la cuenta validada |
+| Puede emitir | De Streamlabs (`can_be_live`); también decide la casilla de adultos |
+
+Lo que **no** se puede: el número de **«Siguiendo»** no aparece en ninguna de las dos
+fuentes, y el nombre para mostrar es el mismo que el usuario salvo que TikTok publique
+otro. Cuando falta un dato, esa línea simplemente no se dibuja.
+
+Las dos consultas se **guardan en tu equipo** (la foto y `profile.json`, en la carpeta de
+configuración) y se hacen como mucho **una vez al día**: los planes gratuitos de esos
+servicios permiten 25 consultas diarias, así que la aplicación no las gasta en cada
+arranque. **Usar la de la cuenta** las fuerza cuando quieras, y también puedes poner
+**una imagen tuya** con *Elegir imagen…*, y entonces el avatar no se consulta nunca más.
+**Quitar** vuelve a la inicial dibujada.
+
+Si no hay foto, o el servicio no contesta, se dibuja un **círculo con tu inicial** con un
+color que depende solo del nombre: dos cuentas nunca se confunden.
 
 La casilla **Contenido para adultos** depende de lo que Streamlabs responda para tu
 cuenta: si tu cuenta no puede usarlo, aparece deshabilitada y explicada.
@@ -225,4 +236,5 @@ GPL-3.0 — consulta [`LICENSE.txt`](LICENSE.txt). Obra original de
 [Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator); este
 repositorio es una versión derivada, endurecida y traducida.
 
-Las fotos de perfil se obtienen con [unavatar.io](https://unavatar.io).
+Las fotos de perfil se obtienen con [unavatar.io](https://unavatar.io) y los datos
+públicos del perfil, con [microlink.io](https://microlink.io).

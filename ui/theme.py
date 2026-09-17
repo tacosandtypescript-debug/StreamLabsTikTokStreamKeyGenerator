@@ -182,6 +182,8 @@ def stylesheet(theme: str) -> str:
     QFrame#banner[state="live"] {{ border-left-color: {t["live"]}; }}
 
     QLabel#bannerTitle {{ font-size: 15px; font-weight: 600; }}
+    QLabel#profileName {{ font-size: 17px; font-weight: 600; }}
+    QLabel#profileStats {{ color: {t["muted"]}; }}
     QLabel#bannerDetail, QLabel#muted, QLabel#cardSummary {{ color: {t["muted"]}; }}
     QLabel#cardTitle {{ color: {t["muted"]}; font-weight: 600; }}
     QLabel#fieldLabel {{ color: {t["muted"]}; }}

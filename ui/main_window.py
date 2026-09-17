@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import profile as profile_store
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,6 +106,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         # Where the picture comes from and which account it belongs to.
         self._avatar_source = ""
         self._avatar_username = ""
+        # The public numbers of the account, when they are known.
+        self._profile: profile_store.Profile | None = None
         # Whether Streamlabs lets this account pick the adult audience.
         self._audience_controls_available = True
         self._category_id = ""
@@ -484,8 +487,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._show_username(info.username)
         self._apply_audience_controls(info)
         self._set_can_go_live(info.can_be_live)
+        self.account_state.setText(f"Estado en Streamlabs: {info.application_status}")
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
         self._maybe_fetch_avatar(info.username)
+        self._load_profile(info.username)
         LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
         self._update_controls()
         if self._session_record is not None and not self._session_prompted:
@@ -500,8 +505,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._account_info = None
         self._validated_token = None
         self._validated_at = None
+        self._profile = None
         self._show_username("")
         self._set_can_go_live(None)
+        self.account_state.clear()
         self._set_status(safe_error_message(exc))
         self._update_controls()
         if not silent:
@@ -1032,16 +1039,28 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
     def _show_username(self, username: str) -> None:
         """Show the account name and its initial wherever the account appears."""
 
-        self._last_username = username.strip()
-        self.tiktok_username.setText(self._last_username)
-        for label in (self.avatar, self.avatar_big):
-            label.set_username(self._last_username)
+        self._last_username = (username or "").strip()
+        self.avatar.set_username(self._last_username)
+        self._refresh_profile_card()
+
+    def _refresh_profile_card(self) -> None:
+        """Draw the account header from whatever is known, inventing nothing."""
+
+        profile = self._profile
+        self.profile_card.set_profile(
+            (profile.username if profile else "") or self._last_username,
+            display_name=profile.display_name if profile else "",
+            followers=profile.followers if profile else "",
+            likes=profile.likes if profile else "",
+            bio=profile.bio if profile else "",
+        )
+        self._sync_account_summary()
 
     def _apply_avatar_picture(self) -> None:
         """Put the chosen picture, if there is one, on every avatar."""
 
         picture = avatar_store.load_avatar()
-        for label in (self.avatar, self.avatar_big):
+        for label in (self.avatar, self.profile_card.avatar):
             label.set_picture(picture)
         self.remove_avatar_btn.setEnabled(picture is not None)
 
@@ -1101,10 +1120,59 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self._set_status("No se pudo traer la foto; se muestra la inicial")
 
     def use_account_avatar(self) -> None:
-        """Fetch the picture because the user asked for it."""
+        """Fetch the picture and the public numbers because the user asked."""
 
         self._avatar_source = "auto"
         self.fetch_account_avatar(announce=True)
+        self.fetch_profile(announce=False)
+
+    def _load_profile(self, username: str) -> None:
+        """Show the public numbers, from the cache when it is still fresh."""
+
+        username = (username or "").strip()
+        if not username:
+            return
+        cached = profile_store.load_cached_profile(username)
+        if cached is not None:
+            self._apply_profile(cached)
+            return
+        self.fetch_profile(username)
+
+    def fetch_profile(self, username: str | None = None, *, announce: bool = False) -> None:
+        """Refresh the public numbers of the account in the background."""
+
+        name = (username if username is not None else self._last_username).strip().lstrip("@")
+        if not name:
+            return
+        if announce:
+            self._set_status("Buscando los datos públicos de la cuenta…")
+        LOGGER.info("Fetching the public profile")
+        self._run_worker(
+            lambda: profile_store.fetch_profile(name),
+            lambda profile: self._profile_fetched(profile, announce),
+            lambda exc: self._profile_not_fetched(exc, announce),
+            operation="profile-fetch",
+            offer_token_renewal=False,
+        )
+
+    def _profile_fetched(self, profile: profile_store.Profile, announce: bool) -> None:
+        profile_store.save_cached_profile(profile)
+        self._apply_profile(profile)
+        LOGGER.info("The public profile of the account was read")
+        if announce:
+            self._set_status("Datos públicos de la cuenta actualizados")
+
+    def _profile_not_fetched(self, exc: Exception, announce: bool) -> None:
+        LOGGER.debug("The public profile could not be read: %s", type(exc).__name__)
+        if announce:
+            self._set_status("No se pudieron leer los datos públicos de la cuenta")
+
+    def _apply_profile(self, profile: profile_store.Profile | None) -> None:
+        self._profile = profile
+        self._refresh_profile_card()
+        # The header may be taller than before and the window is fixed, so the
+        # size is measured again instead of clipping the biography.
+        self._apply_fixed_size()
 
     def choose_avatar(self) -> None:
         """Let the user pick a picture, which the service never replaces."""
