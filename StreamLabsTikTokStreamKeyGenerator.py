@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from local_token import LocalTokenUnsupportedError
 from logging_setup import configure_logging
 from ui.main_window import StreamApp
+from ui.theme import apply_theme
 from version import __version__
 
 LOGGER = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def main() -> int:
         log_path,
     )
     app = QApplication(sys.argv)
+    apply_theme(app)
     window = StreamApp()
     window.show()
     return app.exec()

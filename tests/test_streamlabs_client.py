@@ -15,9 +15,10 @@ from streamlabs_client import (
 
 
 class FakeResponse:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self.payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self):
         if isinstance(self.payload, Exception):
@@ -119,14 +120,19 @@ def test_request_logs_http_status_and_never_logs_secrets(caplog):
     assert "Title" not in caplog.text
 
 
-def test_http_failure_is_logged_with_status(caplog):
+def test_http_failure_is_logged_with_status(monkeypatch, caplog):
     caplog.set_level("INFO", logger="streamlabs_client")
-    client, _ = make_client([FakeResponse({}, status_code=500)])
+    client, session = make_client([FakeResponse({}, status_code=500)] * 3)
+    delays = []
+    monkeypatch.setattr(streamlabs_client.time, "sleep", delays.append)
 
     with pytest.raises(StreamlabsError):
         client.get_account_info()
 
     assert "GET /info -> HTTP 500" in caplog.text
+    # A server error is retried twice before the failure reaches the user.
+    assert len(session.calls) == 3
+    assert delays == [0.5, 1.5]
 
 
 def test_start_response_logs_missing_fields_without_values(caplog):
@@ -199,14 +205,15 @@ def test_end_retries_transient_http_failures(monkeypatch, caplog):
         (500, StreamlabsError),
     ],
 )
-def test_http_errors_are_classified(status, expected):
-    client, _ = make_client([FakeResponse({}, status_code=status)])
+def test_http_errors_are_classified(monkeypatch, status, expected):
+    client, _ = make_client([FakeResponse({}, status_code=status)] * 3)
+    monkeypatch.setattr(streamlabs_client.time, "sleep", lambda _delay: None)
 
     with pytest.raises(expected):
         client.get_account_info()
 
 
-def test_timeouts_and_connection_errors_become_network_errors():
+def test_timeouts_and_connection_errors_become_network_errors(monkeypatch):
     class TimeoutSession(FakeSession):
         def request(self, method, url, **kwargs):
             raise requests.Timeout
@@ -214,6 +221,8 @@ def test_timeouts_and_connection_errors_become_network_errors():
     class RefusedSession(FakeSession):
         def request(self, method, url, **kwargs):
             raise requests.ConnectionError
+
+    monkeypatch.setattr(streamlabs_client.time, "sleep", lambda _delay: None)
 
     for session in (TimeoutSession([]), RefusedSession([])):
         client = StreamlabsTikTokClient("token", session=session)
@@ -235,3 +244,148 @@ def test_invalid_schema_is_not_accepted():
 
     with pytest.raises(EndpointChangedError):
         client.get_account_info()
+
+
+# --------------------------------------------------------------------------- #
+#  Retries                                                                     #
+# --------------------------------------------------------------------------- #
+
+ACCOUNT_PAYLOAD = {
+    "user": {"username": "creator"},
+    "application_status": {"status": "approved"},
+    "can_be_live": True,
+}
+
+
+def _record_sleeps(monkeypatch):
+    delays = []
+    monkeypatch.setattr(streamlabs_client.time, "sleep", delays.append)
+    return delays
+
+
+def test_a_transient_server_error_is_retried_and_then_succeeds(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client(
+        [FakeResponse({}, status_code=503), FakeResponse(ACCOUNT_PAYLOAD)]
+    )
+
+    assert client.get_account_info().username == "creator"
+    assert len(session.calls) == 2
+    assert delays == [0.5]
+
+
+def test_retries_stop_after_the_configured_number_of_attempts(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client([FakeResponse({}, status_code=502)] * 3)
+
+    with pytest.raises(StreamlabsError):
+        client.get_account_info()
+
+    assert len(session.calls) == 3
+    assert delays == [0.5, 1.5]
+
+
+def test_a_bare_rate_limit_is_not_retried(monkeypatch):
+    # Piling more requests onto a rate limit makes it worse, so a 429 without a
+    # Retry-After header is reported straight away.
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client([FakeResponse({}, status_code=429)])
+
+    with pytest.raises(RateLimitError):
+        client.get_account_info()
+
+    assert len(session.calls) == 1
+    assert delays == []
+
+
+def test_rate_limit_retry_after_is_honoured(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client(
+        [
+            FakeResponse({}, status_code=429, headers={"Retry-After": "2"}),
+            FakeResponse(ACCOUNT_PAYLOAD),
+        ]
+    )
+
+    assert client.get_account_info().username == "creator"
+    assert len(session.calls) == 2
+    assert delays == [2.0]
+
+
+def test_rate_limit_retry_after_is_clamped(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, _ = make_client(
+        [
+            FakeResponse({}, status_code=429, headers={"Retry-After": "9999"}),
+            FakeResponse(ACCOUNT_PAYLOAD),
+        ]
+    )
+
+    client.get_account_info()
+
+    assert delays == [streamlabs_client.MAX_RETRY_AFTER_SECONDS]
+
+
+def test_an_http_date_retry_after_is_not_guessed(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client(
+        [
+            FakeResponse(
+                {},
+                status_code=429,
+                headers={"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"},
+            )
+        ]
+    )
+
+    with pytest.raises(RateLimitError):
+        client.get_account_info()
+
+    assert len(session.calls) == 1
+    assert delays == []
+
+
+def test_network_errors_are_retried(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+
+    class FlakySession(FakeSession):
+        def __init__(self):
+            super().__init__([FakeResponse(ACCOUNT_PAYLOAD)])
+            self.attempts = 0
+
+        def request(self, method, url, **kwargs):
+            self.attempts += 1
+            if self.attempts < 3:
+                raise requests.ConnectionError
+            return super().request(method, url, **kwargs)
+
+    session = FlakySession()
+    client = StreamlabsTikTokClient("token", session=session)
+
+    assert client.get_account_info().username == "creator"
+    assert session.attempts == 3
+    assert delays == [0.5, 1.5]
+
+
+def test_start_stream_is_never_retried(monkeypatch):
+    # Repeating this call can create a second session on the server, so it must
+    # stay a single attempt even on a retryable failure.
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client([FakeResponse({}, status_code=503)])
+
+    with pytest.raises(StreamlabsError):
+        client.start_stream("Title", "42")
+
+    assert len(session.calls) == 1
+    assert delays == []
+
+
+def test_category_search_is_retried_too(monkeypatch):
+    delays = _record_sleeps(monkeypatch)
+    client, session = make_client(
+        [FakeResponse({}, status_code=500), FakeResponse({"categories": []})]
+    )
+
+    assert client.search_categories("Fortnite") == [Category("Other", "")]
+    assert len(session.calls) == 2
+    assert delays == [0.5]

@@ -24,9 +24,22 @@ from errors import safe_error_message
 from local_token import find_local_token, local_token_hint
 from logging_setup import log_directory, log_file_path
 from secure_store import SecureTokenStore, TokenStoreUnavailable
-from streamlabs_client import AccountInfo, Category, StreamlabsTikTokClient, StreamSession
+from streamlabs_client import (
+    AccountInfo,
+    AuthenticationError,
+    Category,
+    StreamlabsTikTokClient,
+    StreamSession,
+)
 from TokenRetriever import TokenRetrievalError, TokenRetriever
 from ui.dialogs import DialogsMixin
+from ui.geometry import (
+    available_screens,
+    capture_geometry,
+    restore_geometry,
+    sanitized_geometry,
+)
+from ui.shortcuts import install_shortcuts
 from ui.update_flow import UpdateFlowMixin
 from ui.window_ui import WindowUiMixin
 from workers import Worker
@@ -61,6 +74,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._session_record: ActiveSession | None = None
         self._session_prompted = False
         self._closing = False
+        # Set while the window waits for a stream to end, so that closing can
+        # continue once the request has settled.
+        self._closing_after_end = False
+        self._shortcuts: list[Any] = []
         self._deferred_timers: set[QTimer] = set()
         # Qt does not keep the Python object of a QRunnable alive while the pool
         # runs it, so the application must hold a reference itself.
@@ -80,6 +97,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._clipboard_timer.timeout.connect(self._clear_sensitive_clipboard)
 
         self.init_ui()
+        self._shortcuts = install_shortcuts(self)
         self.load_config()
         self._defer(0, self._finish_startup)
 
@@ -253,7 +271,25 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         finally:
             self._loading_config = False
 
+        self._restore_window_geometry(config)
+
+    def _restore_window_geometry(self, config: AppConfig) -> None:
+        """Give the window back the size and position it had last time."""
+
+        geometry = sanitized_geometry(
+            config.window_width,
+            config.window_height,
+            config.window_x,
+            config.window_y,
+            available_screens(),
+            config.window_maximized,
+        )
+        if geometry is None:
+            return
+        restore_geometry(self, geometry)
+
     def _config_from_ui(self) -> AppConfig:
+        geometry = capture_geometry(self)
         return AppConfig(
             title=self.stream_title.text().strip(),
             game=self.game_category.text().strip(),
@@ -261,6 +297,11 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             suppress_donation_reminder=self.suppress_donation_reminder,
             legacy_migration_declined=self._legacy_migration_declined,
             active_session=self._session_record,
+            window_width=geometry.width,
+            window_height=geometry.height,
+            window_x=geometry.x,
+            window_y=geometry.y,
+            window_maximized=geometry.maximized,
         )
 
     def save_config(self, show_message: bool = True) -> bool:
@@ -348,6 +389,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             lambda exc: self._account_failed(token, exc, silent),
             lambda: self._set_operation_busy("account", False),
             operation="account-validation",
+            offer_token_renewal=not silent,
         )
 
     def _account_loaded(self, token: str, info: AccountInfo) -> None:
@@ -379,6 +421,19 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._update_controls()
         if not silent:
             QMessageBox.critical(self, "Error de cuenta", safe_error_message(exc))
+
+    def _handle_token_renewal_choice(self, choice: str) -> None:
+        """React to the answer given about renewing an expired token.
+
+        Kept separate from the dialog so it can be tested without widgets.
+        """
+
+        if choice != "renew":
+            LOGGER.info("Token renewal declined by the user")
+            self._set_status("El token ha caducado; vuelve a cargarlo")
+            return
+        LOGGER.info("Token renewal started from the expiry notice")
+        self.fetch_online_token()
 
     def load_local_token(self) -> None:
         self._set_operation_busy("local", True)
@@ -632,6 +687,14 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             "La sesión se conserva localmente. Pulsa «Finalizar directo» otra vez "
             "o abre «Registros» si el problema continúa.",
         )
+        if not self._closing_after_end:
+            return
+        if self._ask_abandon_failed_end():
+            self._close_after_end()
+        else:
+            # The user chose to stay: the session record is intact, so it can be
+            # closed from the button or from the next run.
+            self._closing_after_end = False
 
     def _stream_ended(self, _: Any = None) -> None:
         self._active_session = None
@@ -647,6 +710,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             "Directo finalizado",
             "La sesión de Streamlabs terminó correctamente.",
         )
+        self._close_after_end()
 
     def copy_to_clipboard(self, widget: QLineEdit, sensitive: bool) -> None:
         value = widget.text()
@@ -745,6 +809,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         *,
         operation: str | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        offer_token_renewal: bool = True,
     ) -> None:
         worker = Worker(function)
         self._workers.add(worker)
@@ -790,6 +855,12 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
                 type(exc).__name__,
                 safe_error_message(exc),
             )
+            if offer_token_renewal and isinstance(exc, AuthenticationError):
+                # A rejected token has exactly one useful answer, so the generic
+                # "something went wrong" message is replaced by the offer to sign
+                # in again.
+                self._prompt_token_renewal()
+                return
             if on_error:
                 on_error(exc)
             else:
@@ -865,6 +936,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         return safe_error_message(exc)
 
     def _show_donation_and_schedule_update(self) -> None:
+        if self._closing:
+            return
         self.show_donation_reminder()
         self._defer(3000, self.check_updates_on_startup)
 
@@ -891,28 +964,67 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self.refresh_account_info(silent=True)
 
     def closeEvent(self, event: Any) -> None:
-        # From here on, worker callbacks and deferred work must not touch the
-        # widgets: Qt may deliver queued calls while the window is destroyed.
-        self._closing = True
-        if self._active_session:
-            QMessageBox.warning(
-                self,
-                "Sesión activa",
-                "La sesión de Streamlabs sigue activa. Comprueba OBS antes de cerrar.\n\n"
-                "Se ha guardado su identificador: al volver a abrir la aplicación "
-                "podrás cerrarla desde ahí.",
-            )
-        # A pending browser login would otherwise keep a pool thread waiting for
-        # up to five minutes and delay process shutdown.
-        if self._online_retriever is not None:
-            self._online_retriever.cancel()
-        # Deferred work must not run against a closed window.
+        # Any deferred callback (the donation notice, the update check) must be
+        # stopped before anything else: if the user then cancels the close, a
+        # queued call would still be able to run against a half-torn window.
+        self._stop_deferred_work()
+        if self._active_session is not None and not self._closing_after_end:
+            self._handle_close_choice(self._ask_close_with_active_session(), event)
+            return
+        self._teardown_and_accept(event)
+
+    def _handle_close_choice(self, choice: str, event: Any) -> None:
+        """Apply the decision taken when closing with a live session.
+
+        Kept separate from the dialog so every branch can be tested without
+        touching modal widgets.
+        """
+
+        if choice == "end":
+            if self._busy_operations & {"start", "end"} or not self._validated_token:
+                self._set_status("Espera a que termine la operación en curso")
+                event.ignore()
+                return
+            # Closing has to wait for the network call, which needs the window
+            # (and its token) to still be alive to report what happened.
+            self._closing_after_end = True
+            self.end_stream()
+            event.ignore()
+            return
+        if choice == "cancel":
+            event.ignore()
+            return
+        # "keep": the session identifier stays on disk, so the next run offers to
+        # close it again.
+        self._teardown_and_accept(event)
+
+    def _stop_deferred_work(self) -> None:
+        """Stop every callback that was scheduled to run later."""
+
         for timer in list(self._deferred_timers):
             try:
                 timer.stop()
             except RuntimeError:  # pragma: no cover - already destroyed
                 pass
         self._deferred_timers.clear()
+
+    def _teardown_and_accept(self, event: Any) -> None:
+        # From here on, worker callbacks and deferred work must not touch the
+        # widgets: Qt may deliver queued calls while the window is destroyed.
+        self._closing = True
+        # A pending browser login would otherwise keep a pool thread waiting for
+        # up to five minutes and delay process shutdown.
+        if self._online_retriever is not None:
+            self._online_retriever.cancel()
+        self._stop_deferred_work()
         self.thread_pool.clear()
         self._clear_sensitive_clipboard()
         event.accept()
+
+    def _close_after_end(self) -> None:
+        """Close the window once the end-of-stream request has settled."""
+
+        if not self._closing_after_end:
+            return
+        self._closing_after_end = False
+        self.close()

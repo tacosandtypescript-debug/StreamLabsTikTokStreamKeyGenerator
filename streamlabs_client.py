@@ -27,9 +27,46 @@ def _response_fields(payload: dict[str, Any]) -> str:
 
     return ",".join(sorted(str(key) for key in payload)) or "<none>"
 
+
+def _parse_retry_after(value: Any) -> float | None:
+    """Return a ``Retry-After`` delay in seconds, clamped to something sane.
+
+    Only the numeric form is honoured: the HTTP-date form would mean "wait until
+    that moment", which could be hours away and is never what a click in the UI
+    should do.
+    """
+
+    if value is None:
+        return None
+    try:
+        seconds = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
+
+
+def _retry_after_from(response: Any) -> float | None:
+    """Read ``Retry-After`` from a response that may carry no headers at all."""
+
+    headers = getattr(response, "headers", None)
+    if headers is None or not hasattr(headers, "get"):
+        return None
+    return _parse_retry_after(headers.get("Retry-After"))
+
 STREAMLABS_TIKTOK_BASE_URL = "https://streamlabs.com/api/v5/slobs/tiktok"
 STREAMLABS_AUTH_DATA_URL = "https://streamlabs.com/api/v5/slobs/auth/data"
 END_STREAM_RETRY_DELAYS = (1.0, 2.0)
+# Idempotent (GET) requests are retried: a momentary blip must not turn into an
+# error the user has to fix by hand. `start_stream` is deliberately excluded,
+# because repeating it can create a second session on the server.
+GET_RETRIES = 2
+REQUEST_RETRY_DELAYS = (0.5, 1.5)
+RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
+# A rate limit is only retried when Streamlabs says how long to wait, and never
+# for longer than this.
+MAX_RETRY_AFTER_SECONDS = 5.0
 STREAMLABS_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -41,9 +78,17 @@ STREAMLABS_USER_AGENT = (
 class StreamlabsError(RuntimeError):
     """Base class for safe, user-facing Streamlabs errors."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        # Only set when Streamlabs asked for a specific wait before retrying.
+        self.retry_after = retry_after
 
 
 class AuthenticationError(StreamlabsError):
@@ -117,6 +162,72 @@ class StreamlabsTikTokClient:
         )
 
     def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        files: Iterable[tuple[str, tuple[None, str]]] | None = None,
+        allow_empty: bool = False,
+        retries: int = 0,
+        retry_delays: tuple[float, ...] = REQUEST_RETRY_DELAYS,
+    ) -> dict[str, Any]:
+        """Perform a request, repeating it while the failure looks transient.
+
+        ``retries`` is opt-in and must stay at zero for requests that are not
+        idempotent: repeating ``POST /stream/start`` can create a second session.
+        """
+
+        attempt = 0
+        while True:
+            try:
+                return self._request_once(
+                    method,
+                    path,
+                    params=params,
+                    files=files,
+                    allow_empty=allow_empty,
+                )
+            except StreamlabsError as exc:
+                if attempt >= retries or not self._is_retryable(exc):
+                    raise
+                delay = self._retry_delay(exc, attempt, retry_delays)
+                attempt += 1
+                LOGGER.warning(
+                    "Streamlabs request failed; retrying in %.1f s (attempt %s/%s): %s %s",
+                    delay,
+                    attempt + 1,
+                    retries + 1,
+                    method.upper(),
+                    _safe_request_path(path),
+                )
+                time.sleep(delay)
+
+    @staticmethod
+    def _is_retryable(exc: StreamlabsError) -> bool:
+        """Return whether repeating the very same request can plausibly work."""
+
+        if isinstance(exc, NetworkError):
+            return True
+        if exc.status_code == 429:
+            # Only when Streamlabs told us how long to back off for: retrying a
+            # bare rate limit would just pile more requests onto it.
+            return exc.retry_after is not None
+        return exc.status_code in RETRYABLE_STATUS_CODES
+
+    @staticmethod
+    def _retry_delay(
+        exc: StreamlabsError,
+        attempt: int,
+        retry_delays: tuple[float, ...],
+    ) -> float:
+        if exc.retry_after is not None:
+            return exc.retry_after
+        if not retry_delays:
+            return 0.0
+        return retry_delays[min(attempt, len(retry_delays) - 1)]
+
+    def _request_once(
         self,
         method: str,
         path: str,
@@ -213,6 +324,7 @@ class StreamlabsTikTokClient:
             raise RateLimitError(
                 "Streamlabs limitó temporalmente las peticiones.",
                 status_code=response.status_code,
+                retry_after=_retry_after_from(response),
             )
         if response.status_code >= 400:
             LOGGER.warning(
@@ -271,7 +383,7 @@ class StreamlabsTikTokClient:
         return payload
 
     def get_account_info(self) -> AccountInfo:
-        payload = self._request_json("GET", "/info")
+        payload = self._request_json("GET", "/info", retries=GET_RETRIES)
         user = payload.get("user")
         application_status = payload.get("application_status")
         if not isinstance(user, dict) or not isinstance(application_status, dict):
@@ -290,7 +402,7 @@ class StreamlabsTikTokClient:
     def get_account_info_payload(self) -> dict[str, Any]:
         """Compatibility helper for callers that need the raw response."""
 
-        return self._request_json("GET", "/info")
+        return self._request_json("GET", "/info", retries=GET_RETRIES)
 
     def search_categories(self, query: str) -> list[Category]:
         if not query:
@@ -300,6 +412,7 @@ class StreamlabsTikTokClient:
             "GET",
             "/info",
             params={"category": query[:25]},
+            retries=GET_RETRIES,
         )
         categories = payload.get("categories")
         if not isinstance(categories, list):
@@ -367,44 +480,37 @@ class StreamlabsTikTokClient:
             raise ValueError("No hay una sesión de Streamlabs activa.")
 
         path = f"/stream/{quote(session_id, safe='')}/end"
-        last_attempt = len(END_STREAM_RETRY_DELAYS) + 1
-        for attempt in range(1, last_attempt + 1):
-            try:
-                payload = self._request_json("POST", path, allow_empty=True)
-            except StreamlabsError as exc:
-                if getattr(exc, "status_code", None) == 404:
-                    # The session is already gone on Streamlabs. Treating this
-                    # as success makes the operation idempotent after a lost
-                    # response or a previous manual shutdown.
-                    LOGGER.info("Streamlabs session was already closed")
-                    return
-                retryable = isinstance(exc, NetworkError) or getattr(
-                    exc, "status_code", None
-                ) in {429, 500, 502, 503, 504}
-                if not retryable or attempt == last_attempt:
-                    raise
-                delay = END_STREAM_RETRY_DELAYS[attempt - 1]
-                LOGGER.warning(
-                    "Streamlabs end request failed; retrying in %.1f s (attempt %s/%s)",
-                    delay,
-                    attempt + 1,
-                    last_attempt,
-                )
-                time.sleep(delay)
-                continue
-
-            success = payload.get("success")
-            if "success" not in payload:
-                # Some responses from this internal endpoint contain no body
-                # or omit the legacy success flag while still returning 2xx.
-                LOGGER.warning(
-                    "Streamlabs end response omitted success; accepting HTTP 2xx"
-                )
-                return
-            if success is True or success in (1, "1", "true", "True"):
-                return
-            LOGGER.warning(
-                "Streamlabs end response did not confirm success (success_type=%s)",
-                type(success).__name__,
+        try:
+            # The retrying itself lives in ``_request_json``; what is specific to
+            # ending a session is the idempotency rule for a missing one.
+            payload = self._request_json(
+                "POST",
+                path,
+                allow_empty=True,
+                retries=len(END_STREAM_RETRY_DELAYS),
+                retry_delays=END_STREAM_RETRY_DELAYS,
             )
-            raise StreamlabsError("Streamlabs no confirmó el cierre de la sesión.")
+        except StreamlabsError as exc:
+            if getattr(exc, "status_code", None) == 404:
+                # The session is already gone on Streamlabs. Treating this as
+                # success makes the operation idempotent after a lost response
+                # or a previous manual shutdown.
+                LOGGER.info("Streamlabs session was already closed")
+                return
+            raise
+
+        success = payload.get("success")
+        if "success" not in payload:
+            # Some responses from this internal endpoint contain no body
+            # or omit the legacy success flag while still returning 2xx.
+            LOGGER.warning(
+                "Streamlabs end response omitted success; accepting HTTP 2xx"
+            )
+            return
+        if success is True or success in (1, "1", "true", "True"):
+            return
+        LOGGER.warning(
+            "Streamlabs end response did not confirm success (success_type=%s)",
+            type(success).__name__,
+        )
+        raise StreamlabsError("Streamlabs no confirmó el cierre de la sesión.")

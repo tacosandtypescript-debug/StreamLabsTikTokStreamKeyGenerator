@@ -112,3 +112,73 @@ class DialogsMixin:
             "6. Al terminar, pulsa «Finalizar directo»."
         )
         QMessageBox.information(self, "Ayuda", help_text)
+
+    def _ask_close_with_active_session(self) -> str:
+        """Ask what to do about the session that is still open.
+
+        Returns ``"end"``, ``"keep"`` or ``"cancel"``. The caller applies the
+        decision, so the flow can be tested without modal widgets.
+        """
+
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("Sesión activa")
+        message.setText(
+            "La sesión de Streamlabs sigue activa. Si cierras ahora, TikTok puede "
+            "rechazar el siguiente directo.\n\n"
+            "Detén primero la salida de TikTok en OBS y elige qué hacer."
+        )
+        end_btn = message.addButton(
+            "Finalizar directo y cerrar",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        keep_btn = message.addButton(
+            "Cerrar sin finalizar",
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
+        message.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(end_btn)
+        message.exec()
+        clicked = message.clickedButton()
+
+        if clicked is end_btn:
+            return "end"
+        if clicked is keep_btn:
+            return "keep"
+        # "Cancelar", Escape or the window close button: change nothing.
+        return "cancel"
+
+    def _ask_abandon_failed_end(self) -> bool:
+        """Ask whether to close anyway when the session could not be ended."""
+
+        answer = QMessageBox.question(
+            self,
+            "Sesión sin cerrar",
+            "No se pudo cerrar la sesión de Streamlabs.\n\n"
+            "¿Quieres cerrar la aplicación igualmente? Su identificador queda "
+            "guardado y podrás cerrarla al volver a abrirla.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _prompt_token_renewal(self) -> None:
+        """Offer a fresh web login after Streamlabs rejected the token."""
+
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("Token caducado")
+        message.setText(
+            "Streamlabs ha rechazado el token: no es válido o ha caducado.\n\n"
+            "¿Quieres iniciar sesión otra vez para obtener uno nuevo?"
+        )
+        renew_btn = message.addButton(
+            "Iniciar sesión web",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        message.addButton("Ahora no", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(renew_btn)
+        message.exec()
+        clicked = message.clickedButton()
+
+        self._handle_token_renewal_choice("renew" if clicked is renew_btn else "later")

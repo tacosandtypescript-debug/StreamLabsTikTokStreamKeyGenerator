@@ -5,12 +5,19 @@ avoid every modal dialog and network call, so they stay fast and deterministic.
 """
 
 import pytest
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QShortcut
 
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
-from streamlabs_client import AccountInfo, StreamlabsError, StreamSession
+from streamlabs_client import (
+    AccountInfo,
+    AuthenticationError,
+    StreamlabsError,
+    StreamSession,
+)
 from ui import main_window as application
+from ui.main_window import StreamApp
+from ui.shortcuts import SHORTCUTS
 
 
 class FakeBackend:
@@ -333,3 +340,227 @@ def test_config_from_ui_keeps_the_session_record(app):
 
     assert isinstance(config, AppConfig)
     assert config.active_session == ActiveSession("session-1", "Title")
+
+
+# --------------------------------------------------------------------------- #
+#  Closing with a session still open                                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_close_event_tears_down_when_nothing_is_live(app):
+    event = QCloseEvent()
+
+    app.closeEvent(event)
+
+    assert event.isAccepted() is True
+    assert app._closing is True
+
+
+def test_closing_with_a_live_session_ends_it_first(app, monkeypatch):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    ended = []
+    monkeypatch.setattr(app, "end_stream", lambda: ended.append(True))
+    event = QCloseEvent()
+
+    app._handle_close_choice("end", event)
+
+    assert ended == [True]
+    # The window has to stay alive until Streamlabs has answered.
+    assert event.isAccepted() is False
+    assert app._closing_after_end is True
+
+
+def test_cancelling_the_close_changes_nothing(app):
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    event = QCloseEvent()
+
+    app._handle_close_choice("cancel", event)
+
+    assert event.isAccepted() is False
+    assert app._active_session is not None
+    assert app._closing is False
+
+
+def test_keeping_the_session_closes_anyway(app):
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    event = QCloseEvent()
+
+    app._handle_close_choice("keep", event)
+
+    assert event.isAccepted() is True
+    assert app._closing is True
+
+
+def test_closing_cannot_end_a_session_without_a_validated_token(app, monkeypatch):
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    monkeypatch.setattr(app, "_ask_close_with_active_session", lambda: "end")
+    event = QCloseEvent()
+
+    app.closeEvent(event)
+
+    assert event.isAccepted() is False
+    assert app._closing_after_end is False
+    assert "Espera" in app.app_status.text()
+
+
+def test_the_window_closes_itself_once_the_session_ended(app, monkeypatch):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._closing_after_end = True
+    closed = []
+    monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+    app._stream_ended()
+
+    assert closed == [True]
+    assert app._closing_after_end is False
+
+
+def test_a_failed_end_can_still_close_when_the_user_insists(app, monkeypatch):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._closing_after_end = True
+    closed = []
+    monkeypatch.setattr(app, "close", lambda: closed.append(True))
+    monkeypatch.setattr(app, "_ask_abandon_failed_end", lambda: True)
+
+    app._stream_end_failed(StreamlabsError("boom", status_code=503))
+
+    assert closed == [True]
+
+
+def test_a_failed_end_stays_open_when_the_user_prefers_to_retry(app, monkeypatch):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._closing_after_end = True
+    closed = []
+    monkeypatch.setattr(app, "close", lambda: closed.append(True))
+    monkeypatch.setattr(app, "_ask_abandon_failed_end", lambda: False)
+
+    app._stream_end_failed(StreamlabsError("boom", status_code=503))
+
+    assert closed == []
+    assert app._closing_after_end is False
+
+
+# --------------------------------------------------------------------------- #
+#  Expired token                                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_a_rejected_token_offers_a_new_web_login(app, monkeypatch):
+    started = []
+    monkeypatch.setattr(app, "fetch_online_token", lambda: started.append(True))
+
+    app._handle_token_renewal_choice("renew")
+
+    assert started == [True]
+
+
+def test_declining_the_renewal_explains_what_to_do(app):
+    app._handle_token_renewal_choice("later")
+
+    assert "caducado" in app.app_status.text()
+
+
+def test_an_expired_token_offers_renewal_instead_of_a_generic_error(app, qtbot, monkeypatch):
+    prompts = []
+    fallbacks = []
+    monkeypatch.setattr(app, "_prompt_token_renewal", lambda: prompts.append(True))
+
+    def boom():
+        raise AuthenticationError("El token caducó")
+
+    app._run_worker(boom, lambda _result: None, fallbacks.append)
+
+    qtbot.waitUntil(lambda: bool(prompts), timeout=5000)
+    assert prompts == [True]
+    assert fallbacks == []
+
+
+def test_a_silent_validation_never_pops_the_renewal_dialog(app, qtbot, monkeypatch):
+    prompts = []
+    monkeypatch.setattr(app, "_prompt_token_renewal", lambda: prompts.append(True))
+
+    def boom():
+        raise AuthenticationError("El token caducó")
+
+    app._run_worker(
+        boom,
+        lambda _result: None,
+        lambda _exc: None,
+        offer_token_renewal=False,
+    )
+
+    app.thread_pool.waitForDone(5000)
+    qtbot.wait(50)
+
+    assert prompts == []
+
+
+# --------------------------------------------------------------------------- #
+#  Window geometry and shortcuts                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_the_window_size_and_position_survive_a_restart(app, store, qtbot):
+    app.resize(1234, 876)
+    app.move(60, 40)
+    assert app.save_config(False) is True
+
+    second = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(second)
+
+    assert (second.width(), second.height()) == (1234, 876)
+    assert (second.x(), second.y()) == (60, 40)
+
+
+def test_a_remembered_position_with_no_screen_left_is_ignored(app, store, qtbot):
+    app.resize(1000, 700)
+    app.save_config(False)
+    saved = app.config_store.load().config
+    app.config_store.save(
+        AppConfig(
+            title=saved.title,
+            game=saved.game,
+            window_width=1000,
+            window_height=700,
+            window_x=40000,
+            window_y=40000,
+        )
+    )
+
+    second = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(second)
+
+    assert (second.width(), second.height()) == (1000, 700)
+    assert (second.x(), second.y()) != (40000, 40000)
+
+
+def test_every_configured_shortcut_targets_a_real_method(app):
+    for _sequence, method_name in SHORTCUTS:
+        assert callable(getattr(app, method_name)), method_name
+
+
+def test_the_window_installs_one_shortcut_per_entry(app):
+    installed = app.findChildren(QShortcut)
+
+    assert len(installed) == len(SHORTCUTS)
+    assert {shortcut.key().toString() for shortcut in installed} == {
+        sequence for sequence, _ in SHORTCUTS
+    }
+
+
+def test_a_shortcut_invokes_the_method_it_points_at(app):
+    calls = []
+    app.end_stream = lambda: calls.append("end")
+    shortcut = next(
+        item
+        for item in app.findChildren(QShortcut)
+        if item.key().toString() == "Ctrl+Shift+Return"
+    )
+
+    shortcut.activated.emit()
+
+    assert calls == ["end"]

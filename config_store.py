@@ -56,6 +56,14 @@ class AppConfig:
     suppress_donation_reminder: bool = False
     legacy_migration_declined: bool = False
     active_session: ActiveSession | None = None
+    # Window geometry. It is purely cosmetic and purely additive, so the schema
+    # version is deliberately NOT bumped: a file written by either version stays
+    # readable by the other, and an older build simply ignores these fields.
+    window_width: int = 0
+    window_height: int = 0
+    window_x: int | None = None
+    window_y: int | None = None
+    window_maximized: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +74,11 @@ class AppConfig:
             "suppress_donation_reminder": self.suppress_donation_reminder,
             "legacy_migration_declined": self.legacy_migration_declined,
             "active_session": self.active_session.to_dict() if self.active_session else None,
+            "window_width": self.window_width,
+            "window_height": self.window_height,
+            "window_x": self.window_x,
+            "window_y": self.window_y,
+            "window_maximized": self.window_maximized,
         }
 
 
@@ -95,6 +108,30 @@ def _bool_value(data: dict[str, Any], key: str, default: bool) -> bool:
     value = data.get(key, default)
     if not isinstance(value, bool):
         raise ConfigError(f"El campo de configuración '{key}' no es booleano.")
+    return value
+
+
+def _int_value(data: dict[str, Any], key: str, default: int) -> int:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"El campo de configuración '{key}' no es un número entero.")
+    if value < 0:
+        raise ConfigError(f"El campo de configuración '{key}' no puede ser negativo.")
+    return value
+
+
+def _optional_int_value(data: dict[str, Any], key: str) -> int | None:
+    """Read an integer that may legitimately be absent.
+
+    Used for the window position, where ``None`` means "there is no remembered
+    position" and where any sign is valid.
+    """
+
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"El campo de configuración '{key}' no es un número entero.")
     return value
 
 
@@ -167,6 +204,11 @@ def _parse_config(data: Any) -> ConfigLoadResult:
         suppress_donation_reminder=suppress,
         legacy_migration_declined=declined,
         active_session=session,
+        window_width=_int_value(data, "window_width", 0),
+        window_height=_int_value(data, "window_height", 0),
+        window_x=_optional_int_value(data, "window_x"),
+        window_y=_optional_int_value(data, "window_y"),
+        window_maximized=_bool_value(data, "window_maximized", False),
     )
     return ConfigLoadResult(
         config=config,
