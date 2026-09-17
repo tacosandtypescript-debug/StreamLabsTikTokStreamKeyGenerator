@@ -20,6 +20,7 @@ from config_store import (
     ConfigStore,
     read_config_file,
 )
+from diagnostics import build_report, default_report_path, system_summary
 from errors import safe_error_message
 from local_token import find_local_token, local_token_hint
 from logging_setup import log_directory, log_file_path
@@ -956,6 +957,47 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             return
         LOGGER.debug("Opening %s (log file %s)", directory, log_file_path())
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
+
+    def export_diagnostics(self) -> None:
+        """Write a redacted report the user can attach to an issue.
+
+        The current token and stream key are handed over only so that they can be
+        scrubbed out of the log copy: they must never reach the archive.
+        """
+
+        destination = default_report_path()
+        try:
+            report = build_report(
+                destination,
+                summary=system_summary(),
+                log_path=log_file_path(),
+                secret_values=(self.token_entry.text().strip(), self.stream_key.text()),
+            )
+        except OSError as exc:
+            LOGGER.warning("Diagnostics export failed: %s", type(exc).__name__)
+            QMessageBox.warning(
+                self,
+                "Diagnóstico",
+                f"No se pudo crear el informe en:\n{destination}\n\n{exc}",
+            )
+            return
+
+        LOGGER.info("Diagnostics report written to %s", report)
+        self._set_status("Informe de diagnóstico guardado")
+
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Information)
+        message.setWindowTitle("Diagnóstico")
+        message.setText(
+            f"Informe guardado en:\n{report}\n\n"
+            "No incluye el token ni la clave de retransmisión. Adjúntalo en la "
+            "incidencia de GitHub para que se pueda revisar."
+        )
+        open_btn = message.addButton("Abrir la carpeta", QMessageBox.ButtonRole.AcceptRole)
+        message.addButton(QMessageBox.StandardButton.Ok)
+        message.exec()
+        if message.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(report).parent)))
 
     def open_live_monitor(self) -> None:
         QDesktopServices.openUrl(QUrl("https://livecenter.tiktok.com/live_monitor?lang=en-US"))

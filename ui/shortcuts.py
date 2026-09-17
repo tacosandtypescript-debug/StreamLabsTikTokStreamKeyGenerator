@@ -15,6 +15,8 @@ from PySide6.QtGui import QKeySequence, QShortcut
 SHORTCUTS: tuple[tuple[str, str], ...] = (
     ("Ctrl+Return", "start_stream"),
     ("Ctrl+Shift+Return", "end_stream"),
+    ("Ctrl+D", "export_diagnostics"),
+    ("Ctrl+L", "open_logs_folder"),
     ("F1", "show_help"),
 )
 

@@ -11,17 +11,24 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QPushButton,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
+
+from ui.icons import application_icon
 
 
 class WindowUiMixin:
     def init_ui(self) -> None:
         self.setWindowTitle("Generador de clave de TikTok Live (vía Streamlabs)")
         self.setMinimumSize(800, 600)
+        icon = application_icon()
+        if icon is not None:
+            self.setWindowIcon(icon)
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -220,10 +227,17 @@ class WindowUiMixin:
         self.help_btn.clicked.connect(lambda _checked=False: self.show_help())
         bottom_buttons.addWidget(self.help_btn)
 
-        self.logs_btn = QPushButton("Registros")
-        self.logs_btn.setToolTip("Abrir la carpeta de registros de la aplicación")
-        self.logs_btn.clicked.connect(lambda _checked=False: self.open_logs_folder())
-        bottom_buttons.addWidget(self.logs_btn)
+        # One entry point for the support actions: a row of six buttons does not
+        # fit next to the donation and monitor ones.
+        self.support_btn = QToolButton()
+        self.support_btn.setText("Soporte")
+        self.support_btn.setToolTip("Registros e informe de diagnóstico")
+        self.support_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        support_menu = QMenu(self.support_btn)
+        support_menu.addAction("Abrir la carpeta de registros", self.open_logs_folder)
+        support_menu.addAction("Guardar informe de diagnóstico", self.export_diagnostics)
+        self.support_btn.setMenu(support_menu)
+        bottom_buttons.addWidget(self.support_btn)
 
         self.donate_btn = QPushButton("☕ Donar")
         self.donate_btn.setToolTip("Apoyar al autor del proyecto original")

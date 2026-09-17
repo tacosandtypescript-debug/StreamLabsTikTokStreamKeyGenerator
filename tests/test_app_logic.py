@@ -4,6 +4,8 @@ These run the real widgets offscreen (``QT_QPA_PLATFORM=offscreen`` in CI) and
 avoid every modal dialog and network call, so they stay fast and deterministic.
 """
 
+import zipfile
+
 import pytest
 from PySide6.QtGui import QCloseEvent, QShortcut
 
@@ -564,3 +566,55 @@ def test_a_shortcut_invokes_the_method_it_points_at(app):
     shortcut.activated.emit()
 
     assert calls == ["end"]
+
+
+# --------------------------------------------------------------------------- #
+#  Diagnostic report                                                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_exporting_diagnostics_writes_a_report_without_secrets(app, tmp_path, monkeypatch):
+    log = tmp_path / "app.log"
+    log.write_text("2026-01-01 INFO streamlabs_client: cuenta validada\n", encoding="utf-8")
+    destination = tmp_path / "diagnostico.zip"
+    monkeypatch.setattr(application, "default_report_path", lambda: destination)
+    monkeypatch.setattr(application, "log_file_path", lambda: log)
+    app.token_entry.setText("SUPER-SECRET-TOKEN")
+    app.stream_key.setText("SUPER-SECRET-KEY")
+
+    app.export_diagnostics()
+
+    assert destination.is_file()
+    with zipfile.ZipFile(destination) as archive:
+        content = "\n".join(
+            archive.read(name).decode("utf-8", errors="replace") for name in archive.namelist()
+        )
+    assert "SUPER-SECRET-TOKEN" not in content
+    assert "SUPER-SECRET-KEY" not in content
+    assert "cuenta validada" in content
+    assert "Informe de diagnóstico" in content
+
+
+def test_a_failed_diagnostics_export_tells_the_user(app, tmp_path, monkeypatch):
+    blocked = tmp_path / "archivo" / "diagnostico.zip"
+    blocked.parent.write_text("esto no es una carpeta", encoding="utf-8")
+    monkeypatch.setattr(application, "default_report_path", lambda: blocked)
+    warnings = []
+    monkeypatch.setattr(
+        application.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+
+    app.export_diagnostics()
+
+    assert warnings
+
+
+def test_the_support_menu_offers_both_support_actions(app):
+    labels = [action.text() for action in app.support_btn.menu().actions()]
+
+    assert labels == [
+        "Abrir la carpeta de registros",
+        "Guardar informe de diagnóstico",
+    ]

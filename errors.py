@@ -7,6 +7,7 @@ issue: no tokens, no stream keys and no raw response payloads.
 from __future__ import annotations
 
 from config_store import ConfigError
+from i18n import tr
 from local_token import LocalTokenNotFoundError, LocalTokenUnsupportedError
 from secure_store import TokenStoreUnavailable
 from streamlabs_client import (
@@ -72,15 +73,22 @@ _PASSTHROUGH: tuple[type[Exception], ...] = (
 )
 
 
+HTTP_STATUS_LABEL = "Código HTTP de Streamlabs:"
+
+
 def safe_error_message(exc: Exception) -> str:
-    """Return an actionable message for ``exc`` without exposing internals."""
+    """Return an actionable message for ``exc`` without exposing internals.
+
+    The text is translated when it is returned rather than when this module is
+    imported, so a language chosen at startup also applies here.
+    """
 
     for error_type, message in _SPECIFIC_MESSAGES:
         if isinstance(exc, error_type):
             status_code = getattr(exc, "status_code", None)
             if status_code is not None:
-                return f"{message}\n\nCódigo HTTP de Streamlabs: {status_code}."
-            return message
+                return f"{tr(message)}\n\n{tr(HTTP_STATUS_LABEL)} {status_code}."
+            return tr(message)
     if isinstance(exc, _PASSTHROUGH):
         return str(exc)
-    return GENERIC_MESSAGE
+    return tr(GENERIC_MESSAGE)

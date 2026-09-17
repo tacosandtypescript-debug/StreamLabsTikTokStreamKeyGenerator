@@ -9,6 +9,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from i18n import set_language
 from local_token import LocalTokenUnsupportedError
 from logging_setup import configure_logging
 from ui.main_window import StreamApp
@@ -33,6 +34,7 @@ def main() -> int:
         log_path,
     )
     app = QApplication(sys.argv)
+    set_language()
     apply_theme(app)
     window = StreamApp()
     window.show()

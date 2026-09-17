@@ -6,6 +6,8 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QCheckBox, QMessageBox
 
+from i18n import tr
+
 
 class DialogsMixin:
     def _prompt_pending_session(self) -> None:
@@ -103,7 +105,7 @@ class DialogsMixin:
             QDesktopServices.openUrl(QUrl("https://buymeacoffee.com/loukious"))
 
     def show_help(self) -> None:
-        help_text = (
+        help_text = tr(
             "1. Solicita el acceso a TikTok LIVE/RTMP a través de Streamlabs.\n"
             "2. Carga el token con «Iniciar sesión web» o «Cargar desde el PC».\n"
             "3. Pulsa «Actualizar datos de la cuenta» y elige título y categoría.\n"
@@ -111,7 +113,7 @@ class DialogsMixin:
             "5. Pulsa «Preparar directo» y copia la URL y la clave en OBS.\n"
             "6. Al terminar, pulsa «Finalizar directo»."
         )
-        QMessageBox.information(self, "Ayuda", help_text)
+        QMessageBox.information(self, tr("Ayuda"), help_text)
 
     def _ask_close_with_active_session(self) -> str:
         """Ask what to do about the session that is still open.
@@ -122,21 +124,23 @@ class DialogsMixin:
 
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Warning)
-        message.setWindowTitle("Sesión activa")
+        message.setWindowTitle(tr("Sesión activa"))
         message.setText(
-            "La sesión de Streamlabs sigue activa. Si cierras ahora, TikTok puede "
-            "rechazar el siguiente directo.\n\n"
-            "Detén primero la salida de TikTok en OBS y elige qué hacer."
+            tr(
+                "La sesión de Streamlabs sigue activa. Si cierras ahora, TikTok puede "
+                "rechazar el siguiente directo.\n\n"
+                "Detén primero la salida de TikTok en OBS y elige qué hacer."
+            )
         )
         end_btn = message.addButton(
-            "Finalizar directo y cerrar",
+            tr("Finalizar directo y cerrar"),
             QMessageBox.ButtonRole.AcceptRole,
         )
         keep_btn = message.addButton(
-            "Cerrar sin finalizar",
+            tr("Cerrar sin finalizar"),
             QMessageBox.ButtonRole.DestructiveRole,
         )
-        message.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        message.addButton(tr("Cancelar"), QMessageBox.ButtonRole.RejectRole)
         message.setDefaultButton(end_btn)
         message.exec()
         clicked = message.clickedButton()
@@ -153,10 +157,12 @@ class DialogsMixin:
 
         answer = QMessageBox.question(
             self,
-            "Sesión sin cerrar",
-            "No se pudo cerrar la sesión de Streamlabs.\n\n"
-            "¿Quieres cerrar la aplicación igualmente? Su identificador queda "
-            "guardado y podrás cerrarla al volver a abrirla.",
+            tr("Sesión sin cerrar"),
+            tr(
+                "No se pudo cerrar la sesión de Streamlabs.\n\n"
+                "¿Quieres cerrar la aplicación igualmente? Su identificador queda "
+                "guardado y podrás cerrarla al volver a abrirla."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -167,16 +173,18 @@ class DialogsMixin:
 
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Icon.Warning)
-        message.setWindowTitle("Token caducado")
+        message.setWindowTitle(tr("Token caducado"))
         message.setText(
-            "Streamlabs ha rechazado el token: no es válido o ha caducado.\n\n"
-            "¿Quieres iniciar sesión otra vez para obtener uno nuevo?"
+            tr(
+                "Streamlabs ha rechazado el token: no es válido o ha caducado.\n\n"
+                "¿Quieres iniciar sesión otra vez para obtener uno nuevo?"
+            )
         )
         renew_btn = message.addButton(
-            "Iniciar sesión web",
+            tr("Iniciar sesión web"),
             QMessageBox.ButtonRole.AcceptRole,
         )
-        message.addButton("Ahora no", QMessageBox.ButtonRole.RejectRole)
+        message.addButton(tr("Ahora no"), QMessageBox.ButtonRole.RejectRole)
         message.setDefaultButton(renew_btn)
         message.exec()
         clicked = message.clickedButton()
