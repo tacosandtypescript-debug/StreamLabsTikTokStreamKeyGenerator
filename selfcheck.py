@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,23 @@ LOGGER = logging.getLogger(__name__)
 
 # Below this the window is not usable, whatever it says about itself.
 MINIMUM_USABLE_SIDE = 320
+
+
+def say(*parts: str) -> None:
+    """Write to the console when there is one.
+
+    A packaged Windows build has no console at all, and ``print`` would fail there —
+    which is exactly how the first version of this broke continuous integration.
+    Printing is a convenience; the report file and the exit code are the contract.
+    """
+
+    stream = getattr(sys, "stdout", None)
+    if stream is None:
+        return
+    try:
+        print(*parts)
+    except (OSError, ValueError, AttributeError):  # pragma: no cover - odd consoles
+        LOGGER.debug("The console could not be written to", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -186,10 +204,11 @@ def _write_report(text: str) -> Path | None:
 def run_self_check(
     *,
     window_factory: Callable[[], Any] | None = None,
-    output: Callable[[str], None] = print,
+    output: Callable[[str], None] | None = None,
 ) -> int:
     """Build the application offscreen, look at it and report. Returns an exit code."""
 
+    tell = say if output is None else output
     # A build that cannot start without a display could never be checked in CI, and
     # the point is to check the build, not the machine it runs on.
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -222,7 +241,7 @@ def run_self_check(
 
     text = report.text()
     written = _write_report(text)
-    output(text)
+    tell(text)
     if written is not None:
-        output(f"Informe guardado en: {written}")
+        tell(f"Informe guardado en: {written}")
     return 0 if report.ok else 1

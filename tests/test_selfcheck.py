@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QWidget
 
-from selfcheck import CheckResult, SelfCheckReport, run_self_check
+from selfcheck import CheckResult, SelfCheckReport, run_self_check, say
 from version import __version__
 
 
@@ -115,3 +115,24 @@ def test_a_report_that_cannot_be_written_does_not_break_the_check(monkeypatch):
     monkeypatch.setattr("selfcheck._write_report", lambda text: None)
 
     assert run_self_check(window_factory=QWidget) == 1
+
+
+def test_saying_something_without_a_console_does_not_crash(monkeypatch):
+    # This is the normal case in a packaged Windows build: printing there is what
+    # broke continuous integration the first time this was tried.
+    monkeypatch.setattr("sys.stdout", None)
+
+    say("esto no puede salir por ningún sitio")  # no debe lanzar
+
+
+def test_a_console_that_refuses_to_be_written_to_does_not_crash(monkeypatch):
+    class Broken:
+        def write(self, text):
+            raise OSError("no hay consola")
+
+        def flush(self):
+            raise OSError("no hay consola")
+
+    monkeypatch.setattr("sys.stdout", Broken())
+
+    say("tampoco")  # no debe lanzar

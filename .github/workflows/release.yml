@@ -146,15 +146,19 @@ jobs:
         shell: pwsh
         run: |
           $exe = 'StreamLabsTikTokStreamKeyGenerator.dist\StreamLabsTikTokStreamKeyGenerator.exe'
-          & $exe --version
-          if ($LASTEXITCODE -ne 0) { throw "--version failed on the packaged build" }
-          # The Windows build has no console, so the report is read from the file the
-          # check writes next to the logs. The exit code is the verdict either way.
-          & $exe --check
-          $code = $LASTEXITCODE
+          # The build has no console, so it is started as a process and asked for its
+          # exit code: that is the verdict. Printing is not something a windowless
+          # build can be trusted with, which is why the check also writes a file.
+          $version = Start-Process -FilePath $exe -ArgumentList '--version' -Wait -PassThru
+          if ($version.ExitCode -ne 0) {
+            throw "--version failed on the packaged build (exit $($version.ExitCode))"
+          }
+          $check = Start-Process -FilePath $exe -ArgumentList '--check' -Wait -PassThru
           $report = Join-Path $env:LOCALAPPDATA 'Loukious\StreamLabsTikTokStreamKeyGenerator\Logs\autocomprobacion.txt'
-          if (Test-Path $report) { Get-Content -Encoding utf8 $report } else { Write-Warning "no report file" }
-          if ($code -ne 0) { throw "--check failed on the packaged build" }
+          if (Test-Path $report) { Get-Content -Encoding utf8 $report } else { Write-Warning "the check left no report" }
+          if ($check.ExitCode -ne 0) {
+            throw "--check failed on the packaged build (exit $($check.ExitCode))"
+          }
 
       - name: Compress Executable
         run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator-win-${{ needs.resolve-version.outputs.version }}.zip
@@ -286,10 +290,15 @@ jobs:
 
       - name: Check the packaged application
         run: |
-          exe="StreamLabsTikTokStreamKeyGenerator.dist/StreamLabsTikTokStreamKeyGenerator"
+          dist="StreamLabsTikTokStreamKeyGenerator.dist"
+          # Nuitka names the Linux binary itself, so the executable is found instead of
+          # guessed: whatever can be run in there is the application.
+          exe="$(find "$dist" -maxdepth 1 -type f -perm -u+x ! -name '*.so*' ! -name '*.dylib' | head -n1)"
+          echo "Comprobando $exe"
+          test -n "$exe"
           "$exe" --version
-          # No display on a runner, and the check asks for the offscreen platform, so
-          # it works here exactly like on a desktop.
+          # No display on a runner, and the check asks for the offscreen platform, so it
+          # works here exactly like on a desktop.
           "$exe" --check
 
       - name: Compress Executable

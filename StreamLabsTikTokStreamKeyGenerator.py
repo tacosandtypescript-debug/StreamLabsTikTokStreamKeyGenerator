@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 from i18n import set_language
 from local_token import LocalTokenUnsupportedError
 from logging_setup import configure_logging
-from selfcheck import run_self_check
+from selfcheck import run_self_check, say
 from ui.main_window import StreamApp
 from ui.theme import apply_theme
 from version import __version__
@@ -51,10 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
 
     if "--help" in arguments or "-h" in arguments:
-        print(HELP)
+        say(HELP)
         return 0
     if "--version" in arguments:
-        print(f"{PROGRAM_NAME} {__version__}")
+        say(f"{PROGRAM_NAME} {__version__}")
         return 0
     if "--check" in arguments:
         return run_self_check()
