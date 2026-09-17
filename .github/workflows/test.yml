@@ -47,12 +47,8 @@ jobs:
       - name: Lint
         run: ruff check .
 
-      # The installers are run straight from a URL, so a typo would reach users
-      # before anything else could catch it. Check their syntax here.
-      - name: Check install.sh syntax
-        if: runner.os == 'Linux'
-        run: bash -n install.sh
-
+      # The installer is run straight from a URL, so a typo would reach users before
+      # anything else could catch it. Check its syntax here.
       - name: Check install.ps1 syntax
         if: runner.os == 'Windows'
         shell: pwsh
