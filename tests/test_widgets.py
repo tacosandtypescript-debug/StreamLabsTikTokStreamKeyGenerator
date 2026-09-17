@@ -60,6 +60,37 @@ def test_the_banner_fades_its_dot_on_every_change(qtbot):
     assert banner.fade_animation().state() == QAbstractAnimation.State.Running
 
 
+def test_setting_the_state_it_already_has_changes_nothing(qtbot):
+    # The window refreshes the banner on every keystroke; restarting the fade
+    # there made the dot blink while a title was being typed.
+    banner = StateBanner()
+    qtbot.addWidget(banner)
+    banner.set_state("ok", "Listo", "detalle")
+    qtbot.waitUntil(
+        lambda: banner.fade_animation().state() == QAbstractAnimation.State.Stopped,
+        timeout=2000,
+    )
+
+    banner.set_state("ok", "Listo", "detalle")
+
+    assert banner.fade_animation().state() == QAbstractAnimation.State.Stopped
+
+
+def test_the_banner_still_reacts_to_a_real_change(qtbot):
+    banner = StateBanner()
+    qtbot.addWidget(banner)
+    banner.set_state("ok", "Listo", "detalle")
+    qtbot.waitUntil(
+        lambda: banner.fade_animation().state() == QAbstractAnimation.State.Stopped,
+        timeout=2000,
+    )
+
+    banner.set_state("error", "Sin permiso", "detalle")
+
+    assert banner.state() == "error"
+    assert banner.fade_animation().state() == QAbstractAnimation.State.Running
+
+
 def test_the_copy_field_reports_a_copy_and_confirms_in_place(qtbot):
     field = CopyField()
     qtbot.addWidget(field)
@@ -190,3 +221,17 @@ def test_the_progress_bar_fades_in_and_out(qtbot):
     bar.set_busy(False)
     assert bar.is_busy() is False
     qtbot.waitUntil(lambda: bar.isVisible() is False, timeout=2000)
+
+
+def test_repeating_the_busy_state_does_not_restart_the_fade(qtbot):
+    bar = FadingProgressBar()
+    qtbot.addWidget(bar)
+    bar.set_busy(True)
+    qtbot.waitUntil(
+        lambda: bar.animation().state() == QAbstractAnimation.State.Stopped,
+        timeout=2000,
+    )
+
+    bar.set_busy(True)
+
+    assert bar.animation().state() == QAbstractAnimation.State.Stopped

@@ -151,7 +151,19 @@ class StateBanner(QFrame):
         return state_accent(current_theme(), self._state)
 
     def set_state(self, state: str, headline: str, detail: str = "") -> None:
-        """Switch to ``state``: ``neutral``, ``ok``, ``warn``, ``error`` or ``live``."""
+        """Switch to ``state``: ``neutral``, ``ok``, ``warn``, ``error`` or ``live``.
+
+        Setting the state it already has changes nothing on purpose: the window
+        refreshes this on every keystroke, and restarting the fade each time made
+        the dot blink while the user typed a title.
+        """
+
+        if (state, headline, detail) == (
+            self._state,
+            self.title_label.text(),
+            self.detail_label.text(),
+        ):
+            return
 
         self._state = state
         self.title_label.setText(headline)
@@ -373,7 +385,12 @@ class FadingProgressBar(QWidget):
         return self._animation
 
     def set_busy(self, busy: bool) -> None:
-        self._busy = bool(busy)
+        busy = bool(busy)
+        # Called on every control refresh, so the same value must not restart the
+        # fade and make the bar flicker.
+        if busy == self._busy:
+            return
+        self._busy = busy
         self._animation.stop()
         self._animation.setStartValue(self._effect.opacity())
         self._animation.setEndValue(1.0 if self._busy else 0.0)

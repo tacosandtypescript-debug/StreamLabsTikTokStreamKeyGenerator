@@ -983,11 +983,12 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         """
 
         if can is None:
-            self.can_go_live.setText("—")
-            state = "neutral"
+            text, state = "—", "neutral"
         else:
-            self.can_go_live.setText("Sí" if can else "No")
-            state = "ok" if can else "error"
+            text, state = ("Sí" if can else "No"), ("ok" if can else "error")
+        if text == self.can_go_live.text() and state == self.can_go_live.property("state"):
+            return
+        self.can_go_live.setText(text)
         self.can_go_live.setProperty("state", state)
         self.can_go_live.style().unpolish(self.can_go_live)
         self.can_go_live.style().polish(self.can_go_live)
