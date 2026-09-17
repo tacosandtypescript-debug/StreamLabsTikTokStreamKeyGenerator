@@ -180,6 +180,9 @@ class WindowUiMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
+        # The account header first: who this is about, before what to do with it.
+        layout.addWidget(self._profile_header(account=False))
+
         stream_card, stream_layout = self._card("Directo")
         self.stream_title = QLineEdit()
         self.stream_title.setToolTip("El título que tendrá el directo en TikTok")
@@ -275,11 +278,12 @@ class WindowUiMixin:
         layout.addWidget(self.account_btn)
         return page
 
-    def _build_account_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+    def _profile_header(self, *, account: bool) -> QFrame:
+        """Build the account header, once per page.
+
+        Both pages show it: on the main one it is what the user asks about, and on
+        the account one it keeps the page from ending in a stretch of nothing.
+        """
 
         header = QFrame()
         header.setObjectName("card")
@@ -288,8 +292,24 @@ class WindowUiMixin:
         header_layout.setContentsMargins(14, 12, 14, 12)
         header_layout.setSpacing(10)
 
-        self.profile_card = ProfileCard()
-        header_layout.addWidget(self.profile_card)
+        card = ProfileCard()
+        header_layout.addWidget(card)
+        if account:
+            self.account_profile_card = card
+            header_layout.addLayout(self._picture_row())
+            credit = QLabel(
+                'Foto: <a href="https://unavatar.io">unavatar.io</a> · '
+                'perfil: <a href="https://microlink.io">microlink.io</a>'
+            )
+            credit.setObjectName("muted")
+            credit.setOpenExternalLinks(True)
+            header_layout.addWidget(credit)
+        else:
+            self.profile_card = card
+        return header
+
+    def _picture_row(self) -> QHBoxLayout:
+        """The buttons that decide where the picture comes from."""
 
         picture_row = QHBoxLayout()
         picture_row.setSpacing(6)
@@ -312,16 +332,15 @@ class WindowUiMixin:
         self.remove_avatar_btn.clicked.connect(lambda _checked=False: self.remove_avatar())
         picture_row.addWidget(self.remove_avatar_btn)
         picture_row.addStretch(1)
-        header_layout.addLayout(picture_row)
+        return picture_row
 
-        credit = QLabel(
-            'Foto: <a href="https://unavatar.io">unavatar.io</a> · '
-            'perfil: <a href="https://microlink.io">microlink.io</a>'
-        )
-        credit.setObjectName("muted")
-        credit.setOpenExternalLinks(True)
-        header_layout.addWidget(credit)
-        layout.addWidget(header)
+    def _build_account_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        layout.addWidget(self._profile_header(account=True))
 
         token_card, token_layout = self._card("Cuenta de Streamlabs")
         self.token_entry = QLineEdit()

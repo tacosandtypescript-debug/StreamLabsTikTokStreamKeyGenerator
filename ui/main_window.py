@@ -1047,20 +1047,25 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         """Draw the account header from whatever is known, inventing nothing."""
 
         profile = self._profile
-        self.profile_card.set_profile(
-            (profile.username if profile else "") or self._last_username,
-            display_name=profile.display_name if profile else "",
-            followers=profile.followers if profile else "",
-            likes=profile.likes if profile else "",
-            bio=profile.bio if profile else "",
-        )
+        for card in (self.profile_card, self.account_profile_card):
+            card.set_profile(
+                (profile.username if profile else "") or self._last_username,
+                display_name=profile.display_name if profile else "",
+                followers=profile.followers if profile else "",
+                likes=profile.likes if profile else "",
+                bio=profile.bio if profile else "",
+            )
         self._sync_account_summary()
 
     def _apply_avatar_picture(self) -> None:
         """Put the chosen picture, if there is one, on every avatar."""
 
         picture = avatar_store.load_avatar()
-        for label in (self.avatar, self.profile_card.avatar):
+        for label in (
+            self.avatar,
+            self.profile_card.avatar,
+            self.account_profile_card.avatar,
+        ):
             label.set_picture(picture)
         self.remove_avatar_btn.setEnabled(picture is not None)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -96,8 +97,8 @@ def resolve_theme(requested: str | None, system_is_dark: bool | None) -> str:
     return DARK if system_is_dark else LIGHT
 
 
-def system_prefers_dark() -> bool | None:
-    """Return the desktop colour scheme, or ``None`` when it cannot be read."""
+def _qt_color_scheme_is_dark() -> bool | None:
+    """Ask Qt, which knows on most desktops but answers ``Unknown`` on some."""
 
     try:
         from PySide6.QtCore import Qt
@@ -114,6 +115,48 @@ def system_prefers_dark() -> bool | None:
         return False
     # Qt.ColorScheme.Unknown: the platform has no opinion.
     return None
+
+
+def _dark_from_apps_theme(value: Any) -> bool | None:
+    """Turn Windows' ``AppsUseLightTheme`` into an answer: 0 is dark, 1 is light."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value == 0
+
+
+def _windows_prefers_dark() -> bool | None:
+    """Read the theme the user chose in Windows settings.
+
+    Qt answers ``Unknown`` on a desktop that is clearly dark (it does on this
+    machine), so the registry value the Settings app writes is consulted as well.
+    """
+
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover - winreg exists only on Windows
+        return None
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+    except OSError:
+        return None
+    return _dark_from_apps_theme(value)
+
+
+def system_prefers_dark() -> bool | None:
+    """Return the desktop colour scheme, or ``None`` when it cannot be read."""
+
+    answer = _qt_color_scheme_is_dark()
+    if answer is not None:
+        return answer
+    return _windows_prefers_dark()
 
 
 def dark_palette() -> Any:

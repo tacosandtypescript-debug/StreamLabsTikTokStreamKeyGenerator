@@ -1214,6 +1214,22 @@ def test_the_header_hides_what_it_does_not_know(app):
     assert app.profile_card.name_label.text() == "@creator"
 
 
+def test_both_pages_show_the_same_header(app):
+    app._apply_profile(profile_store.Profile(username="creator", followers="1702", likes="1K"))
+
+    for card in (app.profile_card, app.account_profile_card):
+        assert card.name_label.text() == "@creator"
+        assert card.numbers_text() == "1K me gusta · 1702 seguidores"
+
+
+def test_the_header_is_on_the_main_screen(app):
+    # It used to be one click away and the user expected it straight away.
+    app._apply_profile(profile_store.Profile(username="creator", followers="1702"))
+
+    assert app.profile_card.isVisibleTo(app.stream_page) is True
+    assert app.account_profile_card.isVisibleTo(app.account_page) is True
+
+
 def test_asking_for_the_account_data_refreshes_the_numbers_too(app, monkeypatch):
     fetched = []
     monkeypatch.setattr(app, "fetch_account_avatar", lambda *a, **k: fetched.append("avatar"))

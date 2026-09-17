@@ -93,7 +93,8 @@ ejecutes**: vuélvelo a descargar.
    y **Copiar clave**.
 
 La ventana es **pequeña y de tamaño fijo**: mide exactamente lo que mide su
-contenido, no se redimensiona y no tiene zonas vacías. Te dice en todo momento en
+contenido, no se redimensiona y no tiene zonas vacías. Sigue el **tema del sistema**: si
+Windows está en modo oscuro, la aplicación sale en oscuro. Te dice en todo momento en
 qué punto estás: el **banner de arriba** cambia de color y de texto («Sin token»,
 «Cuenta sin validar», «Listo para preparar el directo», «Directo preparado»), y la
 **barra de abajo** muestra qué está pasando mientras se consulta la cuenta o se
@@ -106,10 +107,10 @@ la aplicación, esa pantalla es la que aparece.
 
 ### La cuenta, su foto y sus datos
 
-La pantalla **Cuenta y token** abre con la **cabecera del perfil**, como la de la propia
-red pero sin nada social: ni seguir, ni mensajes, ni compartir.
-
-Se rellena solo con lo que se puede comprobar, y lo que no se sabe **no se inventa**:
+La **cabecera del perfil** aparece arriba en las dos pantallas —en la principal, nada más
+abrir— y es como la de la propia red pero sin nada social: ni seguir, ni mensajes, ni
+compartir. Se rellena solo con lo que se puede comprobar, y lo que no se sabe **no se
+inventa**:
 
 | Dato | De dónde sale |
 |---|---|
