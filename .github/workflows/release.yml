@@ -295,6 +295,19 @@ jobs:
           done > ../SHA256SUMS.txt
           cat ../SHA256SUMS.txt
 
+      # winget stores manifests, never installers, so the hash of the installer
+      # that was just built is baked in here instead of being copied by hand.
+      # Read winget/README.md before opening the pull request.
+      - name: Generate winget manifests
+        run: |
+          installer="$(find artifacts/windows -name 'Setup-*.exe' | head -n1)"
+          python3 tools/make_winget_manifest.py \
+            --installer "$installer" \
+            --version "${{ needs.resolve-version.outputs.version }}" \
+            --output winget-out
+          (cd winget-out && zip -qr ../winget-manifests.zip .)
+          unzip -l winget-manifests.zip
+
       - name: Create the release
         uses: softprops/action-gh-release@v2
         env:
@@ -307,3 +320,4 @@ jobs:
             artifacts/**/*.zip
             artifacts/**/*.exe
             SHA256SUMS.txt
+            winget-manifests.zip
