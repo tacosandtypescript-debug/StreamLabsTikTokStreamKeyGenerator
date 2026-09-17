@@ -7,10 +7,10 @@ avoid every modal dialog and network call, so they stay fast and deterministic.
 import pytest
 from PySide6.QtGui import QCloseEvent
 
-import StreamLabsTikTokStreamKeyGenerator as application
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
 from streamlabs_client import AccountInfo, StreamlabsError, StreamSession
+from ui import main_window as application
 
 
 class FakeBackend:
