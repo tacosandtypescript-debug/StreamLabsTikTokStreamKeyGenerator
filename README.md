@@ -5,7 +5,7 @@
 [![Última versión](https://img.shields.io/github/v/release/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator?label=descarga)](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)
 [![Licencia](https://img.shields.io/badge/licencia-GPL--3.0-blue)](LICENSE.txt)
 
-Aplicación para **Windows, macOS y Linux** que te da la **URL y la clave de
+Aplicación para **Windows** que te da la **URL y la clave de
 retransmisión de TikTok Live** para pegarlas en OBS Studio. La sesión se prepara
 a través de Streamlabs.
 
@@ -30,18 +30,11 @@ foto (en la imagen, con una puesta):
 irm https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.ps1 | iex
 ```
 
-### macOS y Linux — Terminal
+El comando descarga la última versión, **verifica su checksum** y la instala en tu
+carpeta de usuario con acceso directo. **No pide permisos de administrador.**
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/main/install.sh | bash
-```
-
-Los dos comandos descargan la última versión, **verifican su checksum** y la
-instalan en tu carpeta de usuario con acceso directo. **No piden permisos de
-administrador.**
-
-Como estos comandos ejecutan un script, conviene saber qué ejecutan: son cortos y
-legibles — [`install.ps1`](install.ps1) e [`install.sh`](install.sh).
+Como el comando ejecuta un script, conviene saber qué ejecuta: es corto y legible —
+[`install.ps1`](install.ps1).
 
 ### Windows — instalador
 
@@ -58,23 +51,19 @@ un directo preparado, y siempre puedes elegir *Descargar* para hacerlo tú.
 
 | | |
 |---|---|
-| **[⬇️ Última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema, el `Setup-*.exe` de Windows + `SHA256SUMS.txt` |
+| **[⬇️ Última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El `Setup-*.exe` de Windows + `SHA256SUMS.txt` |
 | [Todas las versiones](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Historial |
-| [Compilación automática](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de cada sistema |
+| [Compilación automática](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de la última compilación |
 | [Estado de las pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml) | Ubuntu, Windows y macOS |
 
-Elige el archivo según tu sistema: **`-win-`** (Windows), **`-arm64-macos-`**
-(macOS Apple Silicon), **`-x86_64-macos-`** (macOS Intel), **`-linux-`** (Linux).
+Las releases publican **solo el instalador de Windows**. El código sigue siendo
+multiplataforma y las pruebas se ejecutan en los tres sistemas, pero no se compilan
+binarios para macOS ni Linux.
 
 Comprueba el checksum antes de ejecutarlo:
 
 ```powershell
-# Windows
 Get-FileHash .\StreamLabsTikTokStreamKeyGenerator-win-<versión>.zip -Algorithm SHA256
-```
-```bash
-# macOS / Linux
-shasum -a 256 StreamLabsTikTokStreamKeyGenerator-<sistema>-<versión>.zip
 ```
 
 Compara el valor con su línea de `SHA256SUMS.txt`. Si no coincide, **no lo
@@ -167,8 +156,8 @@ TikTok puede rechazar el siguiente directo).
 
 ## 🔒 Tu token
 
-- Se guarda **cifrado en el almacén de credenciales del sistema** (Windows,
-  macOS, Linux). **Nunca** en `config.json`.
+- Se guarda **cifrado en el almacén de credenciales de Windows**. **Nunca** en
+  `config.json`.
 - La aplicación **no lo imprime** ni lo escribe en los registros.
 - **No lo publiques** en un issue ni en una captura. Lee [`SECURITY.md`](SECURITY.md).
 
@@ -183,9 +172,8 @@ TikTok puede rechazar el siguiente directo).
 | «El token ha caducado» | Vuelve a **Iniciar sesión web**. |
 | OBS no conecta | **Finalizar directo** y **Preparar directo** otra vez (las claves caducan). |
 | **Finalizar directo** muestra un error | La app reintenta los fallos temporales y conserva la sesión para volver a pulsarlo. Si la sesión ya había terminado, un `404` se considera cierre correcto. |
-| «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
+| «No hay almacén seguro» | Falta el almacén de credenciales de Windows. La app sigue funcionando, pero el token no se puede guardar cifrado. |
 | Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
-| macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
 | Necesitas ayuda | **Más → Informar de un problema**: abre una incidencia ya rellenada con la versión y el sistema. Si puedes, adjunta también el informe. |
 | Quieres el informe | **Más → Guardar informe de diagnóstico** deja un ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
 
@@ -253,8 +241,8 @@ y `pytest` (261 pruebas, también de la interfaz). Los iconos se regeneran con
 - Usa los **endpoints internos de Streamlabs Desktop**, no una API pública: si
   Streamlabs cambia su aplicación, puede dejar de funcionar. El riesgo de los
   términos de servicio recae sobre **la cuenta que autoriza**.
-- Los binarios **no están firmados**: Windows SmartScreen o macOS Gatekeeper
-  pueden avisar. Comprueba siempre el checksum.
+- Los binarios **no están firmados**: Windows SmartScreen puede avisar. Comprueba
+  siempre el checksum.
 
 ---
 
