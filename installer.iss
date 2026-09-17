@@ -12,6 +12,13 @@
   #define MyAppVersion "0.0.0"
 #endif
 
+; Where the application is installed. It can be overridden on the compiler command
+; line so that a build under test can be installed somewhere harmless instead of
+; next to a real installation.
+#ifndef MyAppDirName
+  #define MyAppDirName "{localappdata}\Programs\StreamLabsTikTokStreamKeyGenerator"
+#endif
+
 #define MyAppName "StreamLabsTikTokStreamKeyGenerator"
 #define MyAppPublisher "tacosandtypescript-debug"
 #define MyAppURL "https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator"
@@ -45,7 +52,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 
 ; The same folder the PowerShell installer uses, so both routes converge.
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+DefaultDirName={#MyAppDirName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 DisableDirPage=auto

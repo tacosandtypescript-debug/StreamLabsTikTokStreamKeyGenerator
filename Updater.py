@@ -360,7 +360,9 @@ def installer_helper_script(
         f"rem Installer: {installer.name}",
     ]
     if delay_seconds > 0:
-        lines.append(f"timeout /t {int(delay_seconds)} /nobreak >NUL")
+        # ``timeout`` refuses to run when it has no console to read from, which is
+        # exactly the case for a detached helper, so ``ping`` is the sleep.
+        lines.append(f"ping -n {int(delay_seconds) + 1} 127.0.0.1 >NUL")
     lines.append(" ".join([_batch_quote(installer), *flags]))
     if app_executable is not None:
         lines.extend(

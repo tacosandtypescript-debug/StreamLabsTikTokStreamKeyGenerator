@@ -141,14 +141,16 @@ jobs:
       - name: Compress Executable
         run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator-win-${{ needs.resolve-version.outputs.version }}.zip
 
-      # Inno Setup 6 is preinstalled on the runner, but its path is not
-      # documented, so it is resolved instead of hard-coded.
+      # Inno Setup 6 is preinstalled on the runner, but neither its path nor the
+      # folder it chooses is documented: 6.7 installs per user, older builds go
+      # to Program Files, so all of them are tried.
       - name: Build installer
         shell: pwsh
         run: |
           $iscc = @(
             (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) { $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source }
           if (-not $iscc) { throw 'ISCC.exe not found: Inno Setup is missing on this runner' }

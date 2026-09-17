@@ -357,7 +357,8 @@ def test_the_helper_runs_the_installer_silently_and_relaunches():
     lines = script.splitlines()
 
     assert lines[0] == "@echo off"
-    assert "timeout /t 5 /nobreak >NUL" in lines
+    # timeout refuses to run without a console, which a detached helper has not.
+    assert "ping -n 6 127.0.0.1 >NUL" in lines
     install_line = next(line for line in lines if "/SILENT" in line)
     for flag in ("/SILENT", "/CLOSEAPPLICATIONS", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"):
         assert flag in install_line
@@ -374,6 +375,7 @@ def test_the_helper_does_not_relaunch_without_an_executable():
 def test_the_helper_can_skip_the_delay():
     script = installer_helper_script(installer=Path(r"C:\x\Setup.exe"), delay_seconds=0)
 
+    assert "ping" not in script
     assert "timeout" not in script
 
 

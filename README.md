@@ -34,11 +34,22 @@ administrador.**
 Como estos comandos ejecutan un script, conviene saber qué ejecutan: son cortos y
 legibles — [`install.ps1`](install.ps1) e [`install.sh`](install.sh).
 
+### Windows — instalador
+
+La release también publica un **`Setup-*.exe`**. Es una instalación por usuario
+(sin administrador) que aparece en *Aplicaciones instaladas*, crea los accesos
+directos y se desinstala desde ahí.
+
+Si ya tienes la aplicación instalada, **puede actualizarse sola**: al detectar una
+versión nueva te ofrece *Instalar ahora*, descarga el instalador, comprueba su
+checksum, se cierra y vuelve a abrirse ya actualizada. Nunca lo hace mientras hay
+un directo preparado, y siempre puedes elegir *Descargar* para hacerlo tú.
+
 ### O descarga manual
 
 | | |
 |---|---|
-| **[⬇️ Última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema + `SHA256SUMS.txt` |
+| **[⬇️ Última versión](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases/latest)** | El ZIP de tu sistema, el `Setup-*.exe` de Windows + `SHA256SUMS.txt` |
 | [Todas las versiones](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/releases) | Historial |
 | [Compilación automática](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/release.yml) | Estado de cada sistema |
 | [Estado de las pruebas](https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator/actions/workflows/test.yml) | Ubuntu, Windows y macOS |
@@ -71,6 +82,16 @@ ejecutes**: vuélvelo a descargar.
 4. Opcional: **Guardar token de forma segura** para no repetir el login.
 5. Escribe el **título** y la **categoría** → **Preparar directo** → **Copiar URL**
    y **Copiar clave**.
+
+### Atajos de teclado
+
+| Atajo | Qué hace |
+|---|---|
+| `Ctrl+Intro` | Preparar directo |
+| `Ctrl+Mayús+Intro` | Finalizar directo |
+| `Ctrl+D` | Guardar el informe de diagnóstico |
+| `Ctrl+L` | Abrir la carpeta de registros |
+| `F1` | Ayuda |
 
 ### En OBS
 
@@ -107,7 +128,11 @@ TikTok puede rechazar el siguiente directo).
 | «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
 | Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
 | macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
-| Necesitas ayuda | Pulsa **Registros** y adjunta `app.log`: no contiene tokens ni claves. |
+| Necesitas ayuda | **Soporte → Guardar informe de diagnóstico** y adjunta el ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
+
+El informe incluye la versión, el sistema, dónde está instalada la aplicación y las
+últimas líneas del registro, todo pasado por un filtro que borra el token y la clave
+de retransmisión. Es lo que hay que adjuntar en una incidencia.
 
 El registro identifica cada operación, endpoint, código HTTP, duración y campos
 ausentes cuando una respuesta cambia. No guarda títulos, tokens, claves,
@@ -133,7 +158,9 @@ python StreamLabsTikTokStreamKeyGenerator.py
 ```
 
 Para desarrollar: `python -m pip install -r requirements-dev.txt`, `ruff check .`
-y `pytest` (107 pruebas, también de la interfaz).
+y `pytest` (261 pruebas, también de la interfaz). Los iconos se regeneran con
+`node tools/make_icons.mjs` y los manifiestos de winget con
+`python tools/make_winget_manifest.py`.
 
 > En Windows, si `python` abre la Microsoft Store es que solo tienes el alias:
 > instala Python desde [python.org](https://www.python.org/downloads/windows/)

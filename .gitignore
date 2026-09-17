@@ -9,6 +9,8 @@ __pycache__/*
 *.json
 .venv/*
 StreamLabsTikTokStreamKeyGenerator.dist/*
+Output/*
+winget-out/*
 *.xml
 *.exe
 *.bat
