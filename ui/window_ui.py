@@ -211,7 +211,7 @@ class WindowUiMixin:
         self.token_entry.setEchoMode(QLineEdit.EchoMode.Password)
         self.token_entry.textChanged.connect(lambda _text: self.handle_token_change())
         self.token_entry.returnPressed.connect(self.refresh_account_info)
-        layout.addWidget(self._field_label("&Token de Streamlabs", self.token_entry))
+        layout.addWidget(self._field_label("T&oken de Streamlabs", self.token_entry))
 
         token_row = QHBoxLayout()
         token_row.setSpacing(4)

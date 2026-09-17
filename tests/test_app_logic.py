@@ -8,6 +8,7 @@ import zipfile
 
 import pytest
 from PySide6.QtGui import QCloseEvent, QShortcut
+from PySide6.QtWidgets import QLabel
 
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
@@ -807,6 +808,26 @@ def test_the_stream_key_can_be_revealed_like_the_token(app):
     app.stream_key.reveal_button.click()
 
     assert app.stream_key.is_revealed() is True
+
+
+def test_the_status_bar_keeps_an_error_on_one_line(app):
+    app._set_status("Primera línea.\n\nCódigo HTTP de Streamlabs: 401.")
+
+    assert app.app_status.text() == "Primera línea. Código HTTP de Streamlabs: 401."
+    assert "\n" not in app.app_status.text()
+
+
+def test_every_keyboard_mnemonic_is_unique(app):
+    # Two labels sharing a mnemonic make Alt+that-key ambiguous.
+    labels = [label for label in app.findChildren(QLabel) if "&" in label.text()]
+    mnemonics = [
+        label.text()[label.text().index("&") + 1].lower()
+        for label in labels
+        if label.text().index("&") + 1 < len(label.text())
+    ]
+
+    assert mnemonics
+    assert len(set(mnemonics)) == len(mnemonics)
 
 
 # --------------------------------------------------------------------------- #

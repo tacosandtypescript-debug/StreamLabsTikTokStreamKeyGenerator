@@ -969,7 +969,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._update_controls()
 
     def _set_status(self, text: str) -> None:
-        self.app_status.setText(text)
+        # The status bar is one line: an error message with a blank line in it
+        # would otherwise make the bar grow to three lines.
+        self.app_status.setText(" ".join(text.split()))
 
     # ------------------------------------------------------------------ #
     #  State shown to the user                                            #
