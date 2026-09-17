@@ -78,9 +78,17 @@ def store(tmp_path):
 
 
 @pytest.fixture
-def app(qtbot, store, backend, monkeypatch):
+def app(qtbot, store, backend, monkeypatch, tmp_path):
     FakeClient.instances = []
     monkeypatch.setattr(application, "StreamlabsTikTokClient", FakeClient)
+    # The picture lives in a temp folder as well: a test must never see, or
+    # write, the real one.
+    picture_directory = tmp_path / "avatar"
+    monkeypatch.setattr(
+        application.avatar_store,
+        "avatar_directory",
+        lambda: picture_directory,
+    )
     # The avatar service allows 25 lookups a day: the suite must never use one.
     monkeypatch.setattr(
         application.avatar_store,
