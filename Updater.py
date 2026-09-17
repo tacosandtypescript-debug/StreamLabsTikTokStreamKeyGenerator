@@ -1,16 +1,19 @@
-"""Release checking and verified download of updates.
+"""Release checking, verified download and installation of updates.
 
-The download path never executes anything: it fetches the release asset,
-verifies it against the published ``SHA256SUMS.txt`` and leaves it in the
-user's download folder for them to run when they decide to.
+Downloading never runs anything by itself: the asset is verified against the
+published ``SHA256SUMS.txt`` and left in the user's download folder. Running an
+installer is a separate, explicitly requested step, and it only happens when the
+application can actually be replaced while it is running: see
+:func:`can_self_install`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,7 @@ import requests
 from packaging import version
 from platformdirs import user_downloads_dir
 
+from runtime import is_frozen
 from version import __version__
 
 # A source checkout reports a development version, which has nothing
@@ -32,6 +36,22 @@ PLATFORM_ASSET_HINTS: dict[str, tuple[str, ...]] = {
     "Darwin": ("-macos-",),
     "Linux": ("-linux-",),
 }
+
+# The Windows installer published next to the archives.
+INSTALLER_PREFIX = "Setup-"
+INSTALLER_SUFFIX = ".exe"
+# Silent, but with the progress window visible, and without restarting Windows.
+# /CLOSEAPPLICATIONS lets Inno's Restart Manager close the running application.
+INSTALLER_FLAGS: tuple[str, ...] = (
+    "/SILENT",
+    "/CLOSEAPPLICATIONS",
+    "/SUPPRESSMSGBOXES",
+    "/NORESTART",
+    "/SP-",
+)
+INSTALLER_HELPER_NAME = "install-update-{pid}.cmd"
+# The application has to release its own files before Inno Setup runs.
+INSTALLER_DELAY_SECONDS = 3
 
 
 class DownloadError(RuntimeError):
@@ -122,14 +142,22 @@ def select_asset(
     assets: Iterable[dict[str, Any]],
     system: str,
     machine: str = "",
+    *,
+    prefer_installer: bool = True,
 ) -> dict[str, Any] | None:
-    """Return the release asset built for ``system``/``machine``, if any."""
+    """Return the release asset to use on ``system``/``machine``, if any.
+
+    On Windows the installer is preferred when the release publishes one: it
+    installs per user, registers an uninstaller and can replace the running
+    application, none of which an archive can do.
+    """
 
     hints = PLATFORM_ASSET_HINTS.get(system)
     if hints is None:
         return None
 
-    candidates: list[dict[str, Any]] = []
+    archives: list[dict[str, Any]] = []
+    installers: list[dict[str, Any]] = []
     for asset in assets:
         if not isinstance(asset, dict):
             continue
@@ -137,19 +165,47 @@ def select_asset(
         url = asset.get("url")
         if not isinstance(name, str) or not isinstance(url, str):
             continue
-        if not name.endswith(".zip"):
-            continue
-        if any(hint in name for hint in hints):
-            candidates.append(asset)
+        if is_installer_asset(asset, system):
+            installers.append(asset)
+        elif name.endswith(".zip") and any(hint in name for hint in hints):
+            archives.append(asset)
 
-    if not candidates:
+    if prefer_installer and installers:
+        return installers[0]
+    if not archives:
         return None
     if system == "Darwin" and machine:
         wanted = machine.lower()
-        for asset in candidates:
+        for asset in archives:
             if wanted in str(asset["name"]).lower():
                 return asset
-    return candidates[0]
+    return archives[0]
+
+
+def is_installer_asset(asset: Mapping[str, Any], system: str) -> bool:
+    """Return whether ``asset`` is the Windows installer of a release."""
+
+    if system != "Windows":
+        return False
+    name = asset.get("name")
+    return (
+        isinstance(name, str)
+        and name.startswith(INSTALLER_PREFIX)
+        and name.endswith(INSTALLER_SUFFIX)
+    )
+
+
+def can_self_install(system: str, asset: Mapping[str, Any] | None) -> bool:
+    """Return whether this build can replace itself with ``asset``.
+
+    Only a compiled Windows build with an installer: a source checkout is
+    updated with git, and the archives published for the other platforms cannot
+    be swapped while the application is running.
+    """
+
+    if system != "Windows" or not asset or not is_frozen():
+        return False
+    return is_installer_asset(asset, system)
 
 
 def parse_checksum(checksums_text: str, filename: str) -> str | None:
@@ -267,3 +323,94 @@ def _discard(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:  # pragma: no cover - best effort cleanup
         pass
+
+
+def _batch_quote(value: Any) -> str:
+    """Quote a path for a batch file.
+
+    Inside double quotes ``&``, ``^`` and spaces are literal, but ``%`` is still
+    special, so it is doubled.
+    """
+
+    return f'"{str(value).replace("%", "%%")}"'
+
+
+def installer_helper_script(
+    *,
+    installer: Path,
+    app_executable: Path | None = None,
+    log_path: Path | None = None,
+    delay_seconds: int = INSTALLER_DELAY_SECONDS,
+) -> str:
+    """Return the batch script that installs the update once we have exited.
+
+    A running application cannot overwrite its own files, so a detached helper
+    waits for the process to disappear, runs the installer and, when the
+    installation succeeded, starts the application again. Inno does not relaunch
+    it on a silent install, which is why the helper does it.
+    """
+
+    flags = list(INSTALLER_FLAGS)
+    if log_path is not None:
+        flags.append(f"/LOG={_batch_quote(log_path)}")
+
+    lines = [
+        "@echo off",
+        "rem Update helper written by the application; it can be deleted.",
+        f"rem Installer: {installer.name}",
+    ]
+    if delay_seconds > 0:
+        lines.append(f"timeout /t {int(delay_seconds)} /nobreak >NUL")
+    lines.append(" ".join([_batch_quote(installer), *flags]))
+    if app_executable is not None:
+        lines.extend(
+            [
+                "if not errorlevel 1 (",
+                f"  start \"\" {_batch_quote(app_executable)}",
+                ")",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_installer_helper(
+    directory: Path,
+    *,
+    installer: Path,
+    app_executable: Path | None = None,
+    log_path: Path | None = None,
+    delay_seconds: int = INSTALLER_DELAY_SECONDS,
+) -> Path:
+    """Write the update helper inside ``directory`` and return its path.
+
+    The script is written as UTF-8. A path containing characters outside the
+    console code page would need a different encoding, which is why the window
+    always tells the user where the installer is so it can be run by hand.
+    """
+
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    helper = directory / INSTALLER_HELPER_NAME.format(pid=os.getpid())
+    helper.write_text(
+        installer_helper_script(
+            installer=Path(installer),
+            app_executable=None if app_executable is None else Path(app_executable),
+            log_path=None if log_path is None else Path(log_path),
+            delay_seconds=delay_seconds,
+        ),
+        encoding="utf-8",
+    )
+    return helper
+
+
+def launch_detached(helper: Path) -> None:
+    """Run ``helper`` outside this process, so it survives our exit."""
+
+    helper = Path(helper)
+    if os.name == "nt":
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+        subprocess.Popen(["cmd.exe", "/c", str(helper)], close_fds=True, creationflags=flags)
+        return
+    subprocess.Popen(["/bin/sh", str(helper)], close_fds=True, start_new_session=True)

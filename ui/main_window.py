@@ -48,6 +48,24 @@ from workers import Worker
 LOGGER = logging.getLogger(__name__)
 
 
+def _widget_is_alive(widget: Any) -> bool:
+    """Return whether the C++ side of ``widget`` still exists.
+
+    A deferred callback or a queued worker signal can outlive its window when Qt
+    destroys the widget without a close event, and touching a deleted widget then
+    aborts the process instead of raising a normal Python error.
+    """
+
+    try:
+        from shiboken6 import Shiboken
+    except ImportError:  # pragma: no cover - shiboken ships with PySide6
+        return True
+    try:
+        return bool(Shiboken.isValid(widget))
+    except TypeError:  # pragma: no cover - not a wrapped object
+        return True
+
+
 class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
     def __init__(
         self,
@@ -113,8 +131,19 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.setInterval(milliseconds)
-        timer.timeout.connect(callback)
-        timer.timeout.connect(lambda: self._deferred_timers.discard(timer))
+
+        def run() -> None:
+            self._deferred_timers.discard(timer)
+            # A hidden window is either not shown yet or already closed. Qt does
+            # not deliver a close event for a widget that is not visible, so the
+            # timers may still be armed while its deletion is pending; running a
+            # modal dialog then outlives the window and crashes.
+            if self._closing or not _widget_is_alive(self) or not self.isVisible():
+                LOGGER.debug("Dropped a deferred callback for a window that is gone")
+                return
+            callback()
+
+        timer.timeout.connect(run)
         self._deferred_timers.add(timer)
         timer.start()
 
@@ -829,7 +858,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             """
 
             def wrapped(*args: Any) -> None:
-                if self._closing:
+                if self._closing or not _widget_is_alive(self):
                     LOGGER.debug("Dropped a worker callback after close")
                     return
                 callback(*args)

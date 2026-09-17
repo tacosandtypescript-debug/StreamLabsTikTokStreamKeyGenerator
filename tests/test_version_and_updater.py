@@ -1,5 +1,7 @@
 import hashlib
+import os
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -9,10 +11,15 @@ from Updater import (
     DownloadCancelled,
     DownloadError,
     VersionChecker,
+    can_self_install,
     download_asset,
     fetch_checksum,
+    installer_helper_script,
+    is_installer_asset,
+    launch_detached,
     parse_checksum,
     select_asset,
+    write_installer_helper,
 )
 from version import __version__
 
@@ -260,3 +267,148 @@ def test_download_reports_network_errors(tmp_path):
             tmp_path / "app.zip",
             http_get=lambda *a, **k: FakeResponse(status_code=404),
         )
+
+
+# --------------------------------------------------------------------------- #
+#  The Windows installer                                                      #
+# --------------------------------------------------------------------------- #
+
+INSTALLER_ASSET = {
+    "name": "Setup-StreamLabsTikTokStreamKeyGenerator-2.0.0.exe",
+    "browser_download_url": "https://x/setup.exe",
+    "size": 20,
+}
+
+
+def _normalised(*entries):
+    return [{"name": entry["name"], "url": entry["browser_download_url"]} for entry in entries]
+
+
+def test_the_windows_installer_is_preferred_over_the_archive():
+    assets = _normalised(RELEASE["assets"][0], INSTALLER_ASSET)
+
+    selected = select_asset(assets, "Windows")
+
+    assert selected is not None
+    assert selected["name"] == INSTALLER_ASSET["name"]
+
+
+def test_the_archive_is_used_when_the_release_has_no_installer():
+    selected = select_asset(_normalised(RELEASE["assets"][0]), "Windows")
+
+    assert selected is not None
+    assert selected["name"] == "StreamLabs-win-2.0.0.zip"
+
+
+def test_the_installer_can_be_left_out_on_request():
+    assets = _normalised(RELEASE["assets"][0], INSTALLER_ASSET)
+
+    selected = select_asset(assets, "Windows", prefer_installer=False)
+
+    assert selected is not None
+    assert selected["name"] == "StreamLabs-win-2.0.0.zip"
+
+
+def test_an_installer_is_never_selected_for_another_platform():
+    assets = _normalised(INSTALLER_ASSET)
+
+    assert select_asset(assets, "Linux") is None
+    assert select_asset(assets, "Darwin") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "system", "expected"),
+    [
+        ("Setup-App-1.0.0.exe", "Windows", True),
+        ("Setup-App-1.0.0.zip", "Windows", False),
+        ("App-1.0.0.exe", "Windows", False),
+        ("Setup-App-1.0.0.exe", "Linux", False),
+        ("Setup-App-1.0.0.exe", "Darwin", False),
+        (None, "Windows", False),
+    ],
+)
+def test_installer_detection_is_strict(name, system, expected):
+    assert is_installer_asset({"name": name}, system) is expected
+
+
+def test_self_install_requires_a_frozen_windows_build(monkeypatch):
+    monkeypatch.setattr(Updater, "is_frozen", lambda: True)
+
+    assert can_self_install("Windows", INSTALLER_ASSET) is True
+    assert can_self_install("Linux", INSTALLER_ASSET) is False
+    assert can_self_install("Darwin", INSTALLER_ASSET) is False
+    assert can_self_install("Windows", None) is False
+    assert can_self_install("Windows", {"name": "App-2.0.0.zip"}) is False
+
+
+def test_a_source_checkout_never_replaces_itself(monkeypatch):
+    monkeypatch.setattr(Updater, "is_frozen", lambda: False)
+
+    assert can_self_install("Windows", INSTALLER_ASSET) is False
+
+
+def test_the_helper_runs_the_installer_silently_and_relaunches():
+    script = installer_helper_script(
+        installer=Path(r"C:\Users\a\Downloads\Setup-App-2.0.0.exe"),
+        app_executable=Path(r"C:\Users\a\App\App.exe"),
+        log_path=Path(r"C:\Users\a\Downloads\actualizacion.log"),
+        delay_seconds=5,
+    )
+    lines = script.splitlines()
+
+    assert lines[0] == "@echo off"
+    assert "timeout /t 5 /nobreak >NUL" in lines
+    install_line = next(line for line in lines if "/SILENT" in line)
+    for flag in ("/SILENT", "/CLOSEAPPLICATIONS", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"):
+        assert flag in install_line
+    assert r'/LOG="C:\Users\a\Downloads\actualizacion.log"' in install_line
+    assert r'start "" "C:\Users\a\App\App.exe"' in script
+
+
+def test_the_helper_does_not_relaunch_without_an_executable():
+    script = installer_helper_script(installer=Path(r"C:\x\Setup.exe"))
+
+    assert "start " not in script
+
+
+def test_the_helper_can_skip_the_delay():
+    script = installer_helper_script(installer=Path(r"C:\x\Setup.exe"), delay_seconds=0)
+
+    assert "timeout" not in script
+
+
+def test_a_percent_in_a_path_is_escaped_for_batch():
+    script = installer_helper_script(installer=Path(r"C:\100%\Setup.exe"))
+
+    assert r'"C:\100%%\Setup.exe"' in script
+
+
+def test_the_helper_is_written_once_per_process(tmp_path):
+    helper = write_installer_helper(tmp_path / "sub", installer=Path(r"C:\x\Setup.exe"))
+
+    assert helper.is_file()
+    assert helper.parent == tmp_path / "sub"
+    assert helper.suffix == ".cmd"
+    assert str(os.getpid()) in helper.name
+    assert helper.read_text(encoding="utf-8").startswith("@echo off")
+
+
+def test_launching_the_helper_is_detached(monkeypatch, tmp_path):
+    calls = {}
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            calls["args"] = args
+            calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(Updater.subprocess, "Popen", FakePopen)
+
+    launch_detached(tmp_path / "helper.cmd")
+
+    assert calls["kwargs"]["close_fds"] is True
+    if os.name == "nt":
+        assert calls["args"][0] == "cmd.exe"
+        assert calls["kwargs"]["creationflags"] & Updater.subprocess.DETACHED_PROCESS
+    else:
+        assert calls["args"][0] == "/bin/sh"
+        assert calls["kwargs"]["start_new_session"] is True

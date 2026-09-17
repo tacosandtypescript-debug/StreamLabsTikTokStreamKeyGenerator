@@ -141,12 +141,28 @@ jobs:
       - name: Compress Executable
         run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator-win-${{ needs.resolve-version.outputs.version }}.zip
 
+      # Inno Setup 6 is preinstalled on the runner, but its path is not
+      # documented, so it is resolved instead of hard-coded.
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source }
+          if (-not $iscc) { throw 'ISCC.exe not found: Inno Setup is missing on this runner' }
+          & $iscc "/DMyAppVersion=${{ needs.resolve-version.outputs.version }}" installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          Get-ChildItem -Path Output | Select-Object Name, Length
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             *.zip
+            Output/*.exe
 
   build_macos:
     runs-on: macos-latest
@@ -274,7 +290,7 @@ jobs:
       - name: Generate checksums
         working-directory: artifacts
         run: |
-          find . -type f -name '*.zip' -print0 | sort -z | while IFS= read -r -d '' file; do
+          find . -type f \( -name '*.zip' -o -name '*.exe' \) -print0 | sort -z | while IFS= read -r -d '' file; do
             printf '%s  %s\n' "$(sha256sum "$file" | cut -d' ' -f1)" "$(basename "$file")"
           done > ../SHA256SUMS.txt
           cat ../SHA256SUMS.txt
@@ -289,4 +305,5 @@ jobs:
           generate_release_notes: ${{ needs.resolve-version.outputs.from_tag == 'true' }}
           files: |
             artifacts/**/*.zip
+            artifacts/**/*.exe
             SHA256SUMS.txt

@@ -358,6 +358,29 @@ def test_close_event_tears_down_when_nothing_is_live(app):
     assert app._closing is True
 
 
+def test_a_deferred_callback_is_dropped_for_a_window_that_is_not_visible(app, qtbot):
+    # Qt sends no close event to a widget that is not visible, so such a window
+    # can be awaiting deletion while its timers are still armed. Running a modal
+    # dialog then outlives the window.
+    calls = []
+    app._defer(10, lambda: calls.append(True))
+
+    qtbot.wait(80)
+
+    assert app.isVisible() is False
+    assert calls == []
+
+
+def test_a_deferred_callback_runs_for_a_visible_window(app, qtbot):
+    calls = []
+    app.show()
+    app._defer(10, lambda: calls.append(True))
+
+    qtbot.waitUntil(lambda: bool(calls), timeout=2000)
+
+    assert calls == [True]
+
+
 def test_closing_with_a_live_session_ends_it_first(app, monkeypatch):
     _validated(app)
     app._active_session = StreamSession("session-1", "rtmp://server", "key")
@@ -618,3 +641,67 @@ def test_the_support_menu_offers_both_support_actions(app):
         "Abrir la carpeta de registros",
         "Guardar informe de diagnóstico",
     ]
+
+
+# --------------------------------------------------------------------------- #
+#  Installing an update                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_installing_is_never_offered_while_a_session_is_open(app, monkeypatch):
+    from ui import update_flow
+
+    monkeypatch.setattr(update_flow, "can_self_install", lambda system, asset: True)
+    asset = {"name": "Setup-app-2.0.0.exe"}
+
+    assert app._can_install_update(asset, "Windows") is True
+
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+
+    assert app._can_install_update(asset, "Windows") is False
+
+
+def test_starting_the_installer_closes_the_application(app, tmp_path, monkeypatch):
+    from ui import update_flow
+
+    installer = tmp_path / "Setup-app-2.0.0.exe"
+    installer.write_bytes(b"fake installer")
+    helper = tmp_path / "helper.cmd"
+    launched = []
+    closed = []
+    monkeypatch.setattr(
+        update_flow,
+        "write_installer_helper",
+        lambda directory, **kwargs: helper,
+    )
+    monkeypatch.setattr(update_flow, "launch_detached", lambda path: launched.append(path))
+    monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+    app._launch_installer(installer)
+
+    assert launched == [helper]
+    assert closed == [True]
+
+
+def test_a_failed_launch_tells_the_user_where_the_installer_is(app, tmp_path, monkeypatch):
+    from ui import update_flow
+
+    installer = tmp_path / "Setup-app-2.0.0.exe"
+    installer.write_bytes(b"fake installer")
+    warnings = []
+    monkeypatch.setattr(
+        application.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+
+    def explode(directory, **kwargs):
+        raise OSError("no se pudo escribir el ayudante")
+
+    monkeypatch.setattr(update_flow, "write_installer_helper", explode)
+
+    app._launch_installer(installer)
+
+    assert warnings
+    # The message has to say where the installer is, so it can be run by hand.
+    assert str(installer) in warnings[0][2]
