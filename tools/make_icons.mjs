@@ -52,9 +52,10 @@ const DESIGN = {
   ringStrokeBoostBelow: 32, // a <= 32 px el trazo se engorda 1/4 px
   ringStrokeBoost: 0.25,
 
-  // Pestillo: arranca en la mitad del trazo del anillo (nunca dentro del
-  // agujero) y sale hacia la derecha.
-  shaftFromX: 0.44,
+  // Pestillo: arranca en el borde exterior del agujero (dentro del trazo del
+  // anillo) para que el agujero quede enteramente abierto: si arranca antes,
+  // tapa la mitad derecha del agujero y el conjunto lee como una "G".
+  shaftFromX: 0.46,
   shaftToX: 0.752,
   shaftCy: 0.5,
   shaftHalfH: 0.036,
@@ -192,10 +193,10 @@ function renderIcon(size, SS = 4) {
   });
   const toothA = tooth(D.tooth1Cx);
   const toothB = tooth(D.tooth2Cx);
-  const dot = { cx: U(D.dot.cx), cy: U(D.dot.cy), r: D.dot.r * T };
+  const dot = { cx: U(D.dot.cx), cy: UY(D.dot.cy), r: D.dot.r * T };
 
   // Triangulo encogido hacia su centro para usarlo como mascara suavizada.
-  const play = { x0: U(D.play.x0), y0: U(D.play.y0), x1: U(D.play.x1), y1: U(D.play.y1), x2: U(D.play.x2), y2: U(D.play.y2) };
+  const play = { x0: U(D.play.x0), y0: UY(D.play.y0), x1: U(D.play.x1), y1: UY(D.play.y1), x2: U(D.play.x2), y2: UY(D.play.y2) };
   const gx = (play.x0 + play.x1 + play.x2) / 3;
   const gy = (play.y0 + play.y1 + play.y2) / 3;
   const k = D.play.corner;
