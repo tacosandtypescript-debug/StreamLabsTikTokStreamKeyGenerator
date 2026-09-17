@@ -12,7 +12,9 @@ application (and its tests) did not have to change.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from typing import Any
+
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -24,16 +26,18 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
-    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ui.geometry import clamped_height
 from ui.icons import application_icon, eye_icon
 from ui.theme import color_tokens, current_theme
 from ui.widgets import (
     ANIMATION_MS,
+    ContentScrollArea,
+    ContentStack,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
@@ -75,8 +79,20 @@ class WindowUiMixin:
         # One name for the account avatar, wherever it is shown.
         self.avatar = self.banner.avatar
 
-        self.pages = QStackedWidget()
-        outer.addWidget(self.pages)
+        # The window is small and fixed, but its content grows with the system font
+        # and can be taller than a short screen. The pages scroll when that happens,
+        # and not at all when they fit: the stylesheet already draws the bar.
+        self.scroll = ContentScrollArea()
+        self.scroll.setObjectName("scroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.pages = ContentStack()
+        self.pages.setObjectName("scrollBody")
+        self.scroll.setWidget(self.pages)
+        outer.addWidget(self.scroll, 1)
         self.stream_page = self._build_stream_page()
         self.account_page = self._build_account_page()
         self.pages.addWidget(self.stream_page)
@@ -93,7 +109,28 @@ class WindowUiMixin:
             effect.setOpacity(1.0)
             page.setGraphicsEffect(effect)
 
+        # The first measurement happens before Qt has polished the widgets, so the
+        # labels have not wrapped yet and the numbers are only close. Once the window
+        # is on screen they are real, and the size is corrected.
+        self._size_settled = False
         self._apply_fixed_size()
+
+    def showEvent(self, event: Any) -> None:
+        """Measure once more, now that the style has reached every widget.
+
+        The first measurement happens while the widgets are still hidden, and Qt only
+        applies the final fonts and wraps the labels when they are on screen. Doing it
+        here and again as soon as the event loop runs keeps the window from appearing
+        at an approximate size and growing a moment later; if the first pass is already
+        right, the second changes nothing.
+        """
+
+        super().showEvent(event)
+        if self._size_settled:
+            return
+        self._size_settled = True
+        self._apply_fixed_size()
+        QTimer.singleShot(0, self._apply_fixed_size)
 
     # ------------------------------------------------------------------ pages
 
@@ -130,26 +167,91 @@ class WindowUiMixin:
         """Freeze the window at the size its content asks for.
 
         Both pages are measured, so the taller one fits without clipping, and the
-        size follows the system font: a large font gives a larger window instead
-        of cut-off labels. It is called again when the profile arrives, and the
-        window has to be released first: ``adjustSize()`` cannot grow a window
-        whose maximum size was already fixed, which squashed the content instead.
+        size follows the system font. Each page is asked for the height it needs
+        **at the width it is going to have**, because a height measured at another
+        width is the wrong height: the wrapped labels wrap somewhere else.
+
+        Measuring by resizing the window (``adjustSize``) was the obvious way and it
+        was wrong twice over: it cannot grow a window whose maximum size is already
+        fixed, and every measurement changes the state the next one reads, so the
+        result depended on the order. This is arithmetic instead.
+
+        The result never exceeds what the screen offers: a 1080p laptop at 150% of
+        scaling leaves about 690 logical pixels, and a window taller than the screen
+        has a bottom nobody can reach, because it cannot be resized. The pages scroll
+        in that case, and not at all when they fit.
         """
 
+        self.pages.setMinimumHeight(0)
+        outer = self.centralWidget().layout()
+        margins = outer.contentsMargins()
+        inner_width = max(
+            self.pages.sizeHint().width(),
+            MINIMUM_CONTENT_WIDTH - margins.left() - margins.right(),
+        )
+        width = max(inner_width + margins.left() + margins.right(), MINIMUM_CONTENT_WIDTH)
+
+        # The height each page needs *at the width it is going to have*: a height
+        # measured at another width is simply the wrong height, because the wrapped
+        # labels wrap somewhere else. Each page is measured while it is the one on
+        # screen: a hidden page has not wrapped its labels yet and would answer short,
+        # which made the window change size depending on which page was open.
+        heights = []
         current = self.pages.currentIndex()
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(UNLIMITED_SIZE, UNLIMITED_SIZE)
-        sizes = []
         for index in (PAGE_STREAM, PAGE_ACCOUNT):
             self.pages.setCurrentIndex(index)
-            self.adjustSize()
-            sizes.append(self.size())
-        # Whatever page was on screen stays on screen.
+            page = self.pages.widget(index)
+            layout = page.layout() if page is not None else None
+            if layout is not None:
+                layout.activate()
+            if page is not None:
+                heights.append(self._page_height(page, inner_width))
         self.pages.setCurrentIndex(current)
-        self.setFixedSize(
-            max(max(size.width() for size in sizes), MINIMUM_CONTENT_WIDTH),
-            max(size.height() for size in sizes),
+        content_height = max(heights)
+        window_height = content_height + self._chrome_height()
+
+        # The pages keep their natural height, so a window with no room scrolls
+        # instead of squeezing the cards on top of one another.
+        self.pages.set_content_height(content_height)
+
+        height = clamped_height(window_height, self.available_height())
+        if height < window_height:
+            # The bar takes width from the viewport: give it back, so nothing ends
+            # up hidden under the scrollbar.
+            width += self.scroll.verticalScrollBar().sizeHint().width()
+        self.setFixedSize(width, height)
+
+    @staticmethod
+    def _page_height(page: QWidget, width: int) -> int:
+        """Return how tall a page wants to be when it is ``width`` wide."""
+
+        layout = page.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            return layout.heightForWidth(width)
+        return page.sizeHint().height()
+
+    def _chrome_height(self) -> int:
+        """Return the height of everything that is not the scrolling pages."""
+
+        outer = self.centralWidget().layout()
+        margins = outer.contentsMargins()
+        status = self.statusBar()
+        return (
+            margins.top()
+            + margins.bottom()
+            + self.banner.sizeHint().height()
+            + (status.sizeHint().height() if status is not None else 0)
+            + outer.spacing()
         )
+
+    def available_height(self) -> int | None:
+        """Return how much vertical room the screen leaves for the window."""
+
+        screen = self.screen()
+        if screen is None:  # pragma: no cover - needs no platform plugin at all
+            return None
+        area = screen.availableGeometry()
+        return area.height() if area.height() > 0 else None
 
     # ------------------------------------------------------------------ cards
 
@@ -204,6 +306,9 @@ class WindowUiMixin:
             self.suggestions_list,
             natural_height=SUGGESTIONS_HEIGHT,
         )
+        # Opening or closing the suggestions changes how tall the page is, and the
+        # window is fixed: without measuring again the list ends up squeezed.
+        self._suggestions_animator.animation().finished.connect(self._apply_fixed_size)
         stream_layout.addWidget(self.suggestions_list)
 
         self.mature_checkbox = QCheckBox("Contenido para adultos")
@@ -448,6 +553,7 @@ class WindowUiMixin:
         menu = QMenu(self.support_btn)
         menu.addAction("Abrir la carpeta de registros", self.open_logs_folder)
         menu.addAction("Guardar informe de diagnóstico", self.export_diagnostics)
+        menu.addAction("Informar de un problema", self.report_problem)
         menu.addSeparator()
         self.help_btn = menu.addAction("Ayuda", self.show_help)
         self.monitor_btn = menu.addAction("Abrir monitor de TikTok", self.open_live_monitor)

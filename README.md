@@ -186,11 +186,33 @@ TikTok puede rechazar el siguiente directo).
 | «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
 | Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
 | macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
-| Necesitas ayuda | **Más → Guardar informe de diagnóstico** y adjunta el ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
+| Necesitas ayuda | **Más → Informar de un problema**: abre una incidencia ya rellenada con la versión y el sistema. Si puedes, adjunta también el informe. |
+| Quieres el informe | **Más → Guardar informe de diagnóstico** deja un ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
 
 El informe incluye la versión, el sistema, dónde está instalada la aplicación y las
 últimas líneas del registro, todo pasado por un filtro que borra el token y la clave
 de retransmisión. Es lo que hay que adjuntar en una incidencia.
+
+**Informar de un problema** abre el navegador con la incidencia medio escrita. En el
+texto solo van los datos que no identifican tu equipo —versión, sistema, arquitectura y
+si el almacén de claves está disponible—; las rutas se quedan fuera a propósito, porque
+llevan tu nombre de usuario, y por eso el informe completo se adjunta aparte si quieres.
+
+### Comprobar una instalación sin abrirla
+
+```bash
+StreamLabsTikTokStreamKeyGenerator --version   # qué versión es
+StreamLabsTikTokStreamKeyGenerator --check     # ¿este binario funciona?
+```
+
+`--check` construye la ventana de verdad pero sin mostrarla, mira lo que ha salido y lo
+cuenta: si Qt cargó, si el icono está, si las dos pantallas existen, si el tamaño es
+utilizable y **qué fuente de emoji encontró**. Termina con `0` si está bien y con `1` si
+falta algo imprescindible, y deja el informe en la carpeta de registros.
+
+La integración continua lo ejecuta sobre el binario **ya empaquetado** antes de publicar
+la release: el código fuente puede estar perfecto y al paquete faltarle una pieza, que es
+justo lo que pasó una vez con los emoji.
 
 El registro identifica cada operación, endpoint, código HTTP, duración y campos
 ausentes cuando una respuesta cambia. No guarda títulos, tokens, claves,

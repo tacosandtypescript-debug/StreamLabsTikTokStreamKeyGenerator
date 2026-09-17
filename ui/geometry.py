@@ -97,6 +97,28 @@ def sanitized_geometry(
     return WindowGeometry(width, height, position[0], position[1], maximized)
 
 
+def clamped_height(
+    content_height: int,
+    available_height: int | None,
+    *,
+    margin: int = 20,
+    minimum: int = 300,
+) -> int:
+    """Return a window height that fits on the screen.
+
+    A fixed-size window whose content grows with the system font can end up taller
+    than a short screen — a 1080p laptop at 150% leaves about 690 logical pixels —
+    and a window taller than the screen cannot be used: whatever hangs below the
+    edge cannot be reached, because the window cannot be resized or scrolled. The
+    height stops at what fits, and the pages scroll instead.
+    """
+
+    if available_height is None or available_height <= 0:
+        return content_height
+    room = max(available_height - margin, minimum)
+    return min(content_height, room)
+
+
 def available_screens() -> list[ScreenRect]:
     """Return every screen's usable area as ``(left, top, width, height)``."""
 

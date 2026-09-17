@@ -19,6 +19,7 @@ import zipfile
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 from config_store import APP_NAME, ConfigError, ConfigStore
 from logging_setup import log_directory, log_file_path
@@ -29,6 +30,22 @@ from version import __version__
 DIAGNOSTICS_PREFIX = "diagnostico"
 REPORT_ENTRY_NAME = "diagnostico.txt"
 REDACTED = "«oculto»"
+
+REPOSITORY_URL = (
+    "https://github.com/tacosandtypescript-debug/StreamLabsTikTokStreamKeyGenerator"
+)
+ISSUE_URL = f"{REPOSITORY_URL}/issues/new"
+# GitHub takes long links, but a body nobody scrolls through helps nobody.
+MAX_ISSUE_BODY = 1400
+# What gets published in a public issue. The paths the full report carries are left
+# out on purpose: they contain the user's name.
+PUBLIC_SUMMARY_FIELDS = (
+    "Versión de la aplicación",
+    "Sistema operativo",
+    "Arquitectura",
+    "Empaquetado",
+    "Almacén seguro del token",
+)
 
 # Values shorter than this are not treated as secrets. Configuration-like
 # fragments ("0", "true", a two-letter game id) would otherwise be replaced
@@ -152,10 +169,51 @@ def system_summary() -> dict[str, str]:
     }
 
 
+def issue_url(summary: dict[str, str] | None = None, *, problem: str = "") -> str:
+    """Return a link that opens a new issue with the facts already written in.
+
+    Reporting has to cost one click: the application talks to internal Streamlabs
+    endpoints, so the day they change something it stops working for everybody and the
+    author would otherwise never hear about it.
+
+    Only the facts that do not identify the machine are published. The paths are left
+    out on purpose — they carry the user's name — and the full diagnostics stay in the
+    file the user attaches if they want to. The token, the stream key and the session
+    identifier are never part of any of it.
+    """
+
+    facts = system_summary() if summary is None else summary
+    lines = [
+        "### Qué pasa",
+        "",
+        problem.strip() or "(cuéntalo aquí: qué hacías y qué salió mal)",
+        "",
+        "### Datos",
+        "",
+    ]
+    lines.extend(
+        f"- **{name}**: {facts[name]}" for name in PUBLIC_SUMMARY_FIELDS if name in facts
+    )
+    lines += [
+        "",
+        "### Informe completo",
+        "",
+        "Si puedes, adjunta el informe: **Más → Guardar informe de diagnóstico** lo deja",
+        "en el escritorio, ya sin el token ni la clave.",
+    ]
+    body = "\n".join(lines)[:MAX_ISSUE_BODY]
+    version = facts.get("Versión de la aplicación", "")
+    query = urlencode(
+        {
+            "title": f"[Problema] {version}".strip(),
+            "body": body,
+        }
+    )
+    return f"{ISSUE_URL}?{query}"
+
+
 def _secure_store_status() -> str:
     """Report whether the OS-backed token store looks usable.
-
-    ``secure_store`` imports the keyring package lazily inside its constructor,
     so this module keeps keyring out of its own import graph while still
     reporting the verdict of the component that actually owns the token.
     """

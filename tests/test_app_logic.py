@@ -671,6 +671,7 @@ def test_the_more_menu_keeps_the_secondary_actions_out_of_the_way(app):
     assert labels == [
         "Abrir la carpeta de registros",
         "Guardar informe de diagnóstico",
+        "Informar de un problema",
         "Ayuda",
         "Abrir monitor de TikTok",
         "Donar al autor original",
@@ -1238,6 +1239,90 @@ def test_asking_for_the_account_data_refreshes_the_numbers_too(app, monkeypatch)
     app.use_account_avatar()
 
     assert fetched == ["avatar", "numbers"]
+
+
+# --------------------------------------------------------------------------- #
+#  La ventana cabe en la pantalla                                             #
+# --------------------------------------------------------------------------- #
+
+
+def test_a_tall_window_stops_at_the_screen_and_scrolls(app, qtbot, monkeypatch):
+    # A 1080p laptop at 150% leaves about 690 logical pixels; before this the window
+    # simply hung off the bottom of the screen and nothing could be done about it.
+    monkeypatch.setattr(app, "available_height", lambda: 400)
+
+    app._apply_fixed_size()
+    app.show()
+    qtbot.waitUntil(lambda: app.scroll.verticalScrollBar().maximum() > 0, timeout=3000)
+
+    assert app.height() == 380
+    assert app.pages.content_height() > app.scroll.viewport().height()
+
+
+def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+
+    app._apply_fixed_size()
+    app.show()
+    qtbot.wait(150)
+
+    assert app.scroll.verticalScrollBar().maximum() == 0
+    assert app.height() > 380
+
+
+def test_the_scrollbar_does_not_hide_anything(app, monkeypatch):
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    app._apply_fixed_size()
+    ancho_con_espacio = app.width()
+
+    monkeypatch.setattr(app, "available_height", lambda: 400)
+    app._apply_fixed_size()
+
+    # The bar takes width from the viewport, so the window gets it back.
+    assert app.width() > ancho_con_espacio
+
+
+def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):
+    monkeypatch.setattr(app, "available_height", lambda: None)
+
+    app._apply_fixed_size()
+
+    assert app.height() > 380
+    assert app.scroll.verticalScrollBar().maximum() == 0
+
+
+# --------------------------------------------------------------------------- #
+#  Informar de un problema                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_reporting_a_problem_opens_the_browser(app, monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        application.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: opened.append(url.toString())),
+    )
+
+    app.report_problem()
+
+    assert opened
+    assert "issues/new" in opened[0]
+    assert "informar" in app.app_status.text().lower()
+
+
+def test_the_link_published_carries_no_paths(app, monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        application.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: opened.append(url.toString())),
+    )
+
+    app.report_problem()
+
+    assert "C:" not in opened[0]
+    assert "Users" not in opened[0]
 
 
 # --------------------------------------------------------------------------- #

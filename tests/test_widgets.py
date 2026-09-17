@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from PySide6.QtCore import QAbstractAnimation
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ui.theme import BANNER_STATES, state_accent
 from ui.widgets import (
     ANIMATION_MS,
     COPIED_FEEDBACK_MS,
     AvatarLabel,
+    ContentScrollArea,
+    ContentStack,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
@@ -280,3 +282,67 @@ def test_repeating_the_busy_state_does_not_restart_the_fade(qtbot):
     bar.set_busy(True)
 
     assert bar.animation().state() == QAbstractAnimation.State.Stopped
+
+
+def test_the_stack_accepts_the_height_the_window_worked_out(qtbot):
+    # Qt's own hint is measured at the width the widget would like to have, which is
+    # narrower here, so it exaggerates and would make the pages scroll for nothing.
+    stack = ContentStack()
+    qtbot.addWidget(stack)
+    stack.addWidget(QWidget())
+
+    stack.set_content_height(495)
+
+    assert stack.minimumSizeHint().height() == 495
+    assert stack.content_height() == 495
+
+
+def test_the_stack_keeps_its_own_hint_until_something_is_measured(qtbot):
+    stack = ContentStack()
+    qtbot.addWidget(stack)
+    stack.addWidget(QWidget())
+
+    assert stack.content_height() == 0
+    assert stack.minimumSizeHint() == stack.sizeHint()
+
+
+def test_the_stack_ignores_a_nonsense_height(qtbot):
+    stack = ContentStack()
+    qtbot.addWidget(stack)
+    stack.addWidget(QWidget())
+
+    stack.set_content_height(-40)
+
+    assert stack.content_height() == 0
+
+
+def test_the_scroll_area_reports_the_size_of_its_content(qtbot):
+    body = QWidget()
+    qtbot.addWidget(body)
+    layout = QVBoxLayout(body)
+    child = QWidget()
+    child.setFixedSize(300, 520)
+    layout.addWidget(child)
+    area = ContentScrollArea()
+    qtbot.addWidget(area)
+
+    area.setWidget(body)
+
+    # Exactly what the content asks for, plus its own frame: that is what the window
+    # measures, and the frame is part of the widget.
+    frame = area.frameWidth() * 2
+    assert area.sizeHint().height() == body.sizeHint().height() + frame
+    assert area.minimumSizeHint().height() == body.minimumSizeHint().height() + frame
+    assert area.sizeHint().height() >= 520
+
+
+def test_a_scroll_area_whose_content_has_no_size_answers_for_itself(qtbot):
+    body = QWidget()
+    qtbot.addWidget(body)
+    area = ContentScrollArea()
+    qtbot.addWidget(area)
+
+    area.setWidget(body)
+
+    assert area.sizeHint().width() > 0
+    assert area.minimumSizeHint().width() > 0

@@ -39,7 +39,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
+    QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -308,6 +310,69 @@ class AvatarLabel(QWidget):
             painter.setPen(QPen(QColor(color_tokens(current_theme())["border"]), 1))
             painter.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
         painter.end()
+
+
+class ContentStack(QStackedWidget):
+    """A stack that accepts being shorter than its content's own minimum hint.
+
+    Qt derives a layout's minimum from its widgets' hints, and those are measured at
+    the width the widget would *like* to have. At the width the window actually has,
+    the wrapped labels need fewer lines and therefore less height. Trusting the hint
+    would make the pages scroll when they fit perfectly well, so the stack is told
+    the height the window computed for it instead.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._content_height = 0
+
+    def set_content_height(self, height: int) -> None:
+        """Record how tall the pages really need to be at the width they have."""
+
+        self._content_height = max(int(height), 0)
+        self.updateGeometry()
+
+    def content_height(self) -> int:
+        return self._content_height
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        if self._content_height:
+            return QSize(hint.width(), self._content_height)
+        return hint
+
+
+class ContentScrollArea(QScrollArea):
+    """A scroll area that reports the size of what it holds.
+
+    Qt's own ``sizeHint`` for a resizable scroll area is a small default, so a
+    window measured through it would come out far too small. This one answers with
+    the content's size, which is what the window has to be exactly as big as; and
+    when the screen has no room for that, the area scrolls because the content keeps
+    its own minimum height.
+    """
+
+    def sizeHint(self) -> QSize:
+        widget = self.widget()
+        if widget is None:  # pragma: no cover - the widget is set at build time
+            return super().sizeHint()
+        hint = widget.sizeHint()
+        if not hint.isValid():  # a widget with no layout has no size of its own
+            return super().sizeHint()
+        frame = self.frameWidth() * 2
+        return QSize(hint.width() + frame, hint.height() + frame)
+
+    def minimumSizeHint(self) -> QSize:
+        """The content's own minimum, so nothing is ever squeezed inside."""
+
+        widget = self.widget()
+        if widget is None:  # pragma: no cover - the widget is set at build time
+            return super().minimumSizeHint()
+        hint = widget.minimumSizeHint()
+        if not hint.isValid():  # a widget with no layout has no minimum of its own
+            return super().minimumSizeHint()
+        frame = self.frameWidth() * 2
+        return QSize(hint.width() + frame, hint.height() + frame)
 
 
 class ProfileCard(QWidget):

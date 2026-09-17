@@ -14,10 +14,12 @@ import diagnostics
 from config_store import ActiveSession, AppConfig, ConfigError, ConfigLoadResult
 from diagnostics import (
     DIAGNOSTICS_PREFIX,
+    MAX_ISSUE_BODY,
     REDACTED,
     REPORT_ENTRY_NAME,
     build_report,
     default_report_path,
+    issue_url,
     scrub,
     system_summary,
 )
@@ -351,3 +353,65 @@ def test_default_report_path_uses_the_current_time_by_default(tmp_path, monkeypa
     assert re.fullmatch(r"diagnostico-\d{8}-\d{6}\.zip", path.name)
     stamp = datetime.strptime(path.name[len(DIAGNOSTICS_PREFIX) + 1 : -4], "%Y%m%d-%H%M%S")
     assert abs((datetime.now() - stamp).total_seconds()) < 60
+
+
+# --------------------------------------------------------------------------- #
+#  El aviso de un problema                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _issue_body(url: str) -> str:
+    from urllib.parse import parse_qs, urlparse
+
+    return parse_qs(urlparse(url).query)["body"][0]
+
+
+def test_the_issue_link_points_at_this_repository():
+    url = issue_url()
+
+    assert url.startswith(f"{diagnostics.REPOSITORY_URL}/issues/new?")
+    assert "title=" in url
+
+
+def test_the_issue_carries_the_facts_that_help():
+    body = _issue_body(issue_url())
+
+    assert __version__ in body
+    assert platform.system() in body
+    assert "Empaquetado" in body
+
+
+def test_the_issue_never_publishes_the_user_paths():
+    # The full report has them, and that is fine for a file on the user's desk; a
+    # public issue is another thing, because those paths carry the user's name.
+    summary = system_summary()
+    body = _issue_body(issue_url(summary))
+
+    for field in ("Ruta del programa", "Carpeta de registros", "Archivo de registro"):
+        assert field not in body
+        assert summary[field] not in body
+
+
+def test_the_issue_never_carries_a_secret():
+    url = issue_url(problem=f"el token {FAKE_TOKEN} falla")
+
+    assert FAKE_TOKEN in url  # lo que escribe el usuario es suyo
+    assert FAKE_TOKEN not in _issue_body(issue_url())
+
+
+def test_what_the_user_wrote_is_kept():
+    body = _issue_body(issue_url(problem="Al preparar el directo dice que no hay token"))
+
+    assert "Al preparar el directo dice que no hay token" in body
+
+
+def test_without_a_description_there_is_a_placeholder():
+    body = _issue_body(issue_url())
+
+    assert "cuéntalo aquí" in body
+
+
+def test_the_body_cannot_grow_without_limit():
+    summary = {f"campo {index}": "x" * 200 for index in range(50)}
+
+    assert len(_issue_body(issue_url(summary))) <= MAX_ISSUE_BODY

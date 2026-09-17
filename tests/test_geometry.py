@@ -9,6 +9,7 @@ from ui.geometry import (
     MINIMUM_WIDTH,
     WindowGeometry,
     capture_geometry,
+    clamped_height,
     restore_geometry,
     sanitized_geometry,
     sanitized_position,
@@ -121,3 +122,32 @@ def test_a_fixed_window_restores_only_the_position(qtbot):
 
     assert (widget.width(), widget.height()) == (300, 200)
     assert (widget.x(), widget.y()) == (150, 90)
+
+
+def test_a_height_that_fits_is_left_alone():
+    assert clamped_height(704, 1080) == 704
+
+
+def test_a_height_that_does_not_fit_stops_at_the_screen():
+    # A 1080p laptop at 150% of scaling leaves about 690 logical pixels, and a
+    # window taller than the screen has a bottom nobody can reach.
+    assert clamped_height(704, 690) == 670
+
+
+def test_without_knowing_the_screen_nothing_is_clamped():
+    assert clamped_height(704, None) == 704
+    assert clamped_height(704, 0) == 704
+
+
+def test_a_tiny_screen_still_gets_a_usable_window():
+    # Better a small window that scrolls than one squashed into nothing.
+    assert clamped_height(704, 200) == 300
+
+
+def test_the_margin_and_the_floor_can_be_chosen():
+    assert clamped_height(900, 800, margin=0) == 800
+    assert clamped_height(900, 800, margin=100) == 700
+    # The margin is taken off first, and only then does the floor apply: a screen
+    # smaller than the floor still gets that much, never less.
+    assert clamped_height(900, 250, minimum=100) == 230
+    assert clamped_height(900, 100, minimum=100) == 100

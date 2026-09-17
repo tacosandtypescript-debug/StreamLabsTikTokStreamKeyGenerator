@@ -34,3 +34,38 @@ def test_every_split_module_stands_on_its_own():
     assert DialogsMixin.__module__ == "ui.dialogs"
     assert UpdateFlowMixin.__module__ == "ui.update_flow"
     assert StreamApp.__module__ == "ui.main_window"
+
+
+def test_the_version_can_be_asked_without_opening_a_window(capsys):
+    # A packaged build has to be able to say which version it is: that is how a
+    # release is checked after installing it.
+    code = entry.main(["--version"])
+
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert entry.__version__ in printed
+    assert "Streamlabs" in printed
+
+
+def test_the_help_explains_the_two_flags(capsys):
+    code = entry.main(["--help"])
+
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "--version" in printed
+    assert "--check" in printed
+
+
+def test_the_short_help_flag_works_too(capsys):
+    assert entry.main(["-h"]) == 0
+    assert "Uso:" in capsys.readouterr().out
+
+
+def test_the_check_runs_the_self_check(monkeypatch):
+    called = []
+    monkeypatch.setattr(entry, "run_self_check", lambda: called.append(True) or 0)
+
+    code = entry.main(["--check"])
+
+    assert code == 0
+    assert called

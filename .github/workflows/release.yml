@@ -138,6 +138,24 @@ jobs:
           --include-data-dir="assets=assets" `
           StreamLabsTikTokStreamKeyGenerator.py
 
+      # The tests cover the source, and the source was never the problem: a bundle can
+      # be missing a Qt plugin, an icon or a font, and none of that shows up until a
+      # user opens it. This is what caught the emoji issue, so the built application
+      # now answers for itself before anything is published.
+      - name: Check the packaged application
+        shell: pwsh
+        run: |
+          $exe = 'StreamLabsTikTokStreamKeyGenerator.dist\StreamLabsTikTokStreamKeyGenerator.exe'
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version failed on the packaged build" }
+          # The Windows build has no console, so the report is read from the file the
+          # check writes next to the logs. The exit code is the verdict either way.
+          & $exe --check
+          $code = $LASTEXITCODE
+          $report = Join-Path $env:LOCALAPPDATA 'Loukious\StreamLabsTikTokStreamKeyGenerator\Logs\autocomprobacion.txt'
+          if (Test-Path $report) { Get-Content -Encoding utf8 $report } else { Write-Warning "no report file" }
+          if ($code -ne 0) { throw "--check failed on the packaged build" }
+
       - name: Compress Executable
         run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator-win-${{ needs.resolve-version.outputs.version }}.zip
 
@@ -210,6 +228,12 @@ jobs:
           --include-data-dir="assets=assets" \
           StreamLabsTikTokStreamKeyGenerator.py
 
+      - name: Check the packaged application
+        run: |
+          app="StreamLabsTikTokStreamKeyGenerator.app/Contents/MacOS/StreamLabsTikTokStreamKeyGenerator"
+          "$app" --version
+          "$app" --check
+
       - name: Compress Executable
         run: |
           zip -r StreamLabsTikTokStreamKeyGenerator-${{ matrix.architecture }}-macos-${{ needs.resolve-version.outputs.version }}.zip StreamLabsTikTokStreamKeyGenerator.app
@@ -259,6 +283,14 @@ jobs:
           --prefer-source-code \
           --include-data-dir="assets=assets" \
           StreamLabsTikTokStreamKeyGenerator.py
+
+      - name: Check the packaged application
+        run: |
+          exe="StreamLabsTikTokStreamKeyGenerator.dist/StreamLabsTikTokStreamKeyGenerator"
+          "$exe" --version
+          # No display on a runner, and the check asks for the offscreen platform, so
+          # it works here exactly like on a desktop.
+          "$exe" --check
 
       - name: Compress Executable
         run: zip -r StreamLabsTikTokStreamKeyGenerator-linux-${{ needs.resolve-version.outputs.version }}.zip StreamLabsTikTokStreamKeyGenerator.dist/*

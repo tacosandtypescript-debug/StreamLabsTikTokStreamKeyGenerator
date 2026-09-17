@@ -7,6 +7,19 @@ import pytest
 from ui import text as text_tools
 
 
+@pytest.fixture(autouse=True)
+def untouched_app_font(qapp):
+    """Give every test the font as it was.
+
+    Installing the fallback changes the running application's font, which is shared
+    by the whole session: without this, one test would decide what the next one sees.
+    """
+
+    original = qapp.font()
+    yield
+    qapp.setFont(original)
+
+
 @pytest.fixture
 def no_emoji_font(monkeypatch):
     """Pretend this machine has no font able to draw an emoji."""
@@ -65,8 +78,10 @@ def test_empty_text_is_left_alone(no_emoji_font):
 def test_the_fallback_goes_after_the_desktop_choice(qapp, with_emoji_font):
     original = qapp.font()
     try:
-        assert text_tools.install_emoji_fallback(qapp) is True
+        text_tools.install_emoji_fallback(qapp)
         families = qapp.font().families()
+        # Whatever the starting point was, the emoji font ends up last: the desktop's
+        # own choice keeps deciding how everything else looks.
         assert families[-1] == "Segoe UI Emoji"
         assert families[0] == (original.families() or [original.family()])[0]
     finally:
@@ -76,8 +91,9 @@ def test_the_fallback_goes_after_the_desktop_choice(qapp, with_emoji_font):
 def test_the_fallback_is_not_installed_twice(qapp, with_emoji_font):
     original = qapp.font()
     try:
-        assert text_tools.install_emoji_fallback(qapp) is True
+        text_tools.install_emoji_fallback(qapp)
         assert text_tools.install_emoji_fallback(qapp) is False
+        assert qapp.font().families().count("Segoe UI Emoji") == 1
     finally:
         qapp.setFont(original)
 

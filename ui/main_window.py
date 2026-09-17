@@ -29,7 +29,7 @@ from config_store import (
     ConfigStore,
     read_config_file,
 )
-from diagnostics import build_report, default_report_path, system_summary
+from diagnostics import build_report, default_report_path, issue_url, system_summary
 from errors import safe_error_message
 from local_token import find_local_token, local_token_hint
 from logging_setup import log_directory, log_file_path
@@ -333,6 +333,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._avatar_source = config.avatar_source
         self._avatar_username = config.avatar_username
         self._apply_avatar_picture()
+        # The account is on screen now, so the labels have their text: measuring again
+        # here means the window is already the right size when it appears, instead of
+        # growing a moment later.
+        self._apply_fixed_size()
         self._restore_window_geometry(config)
 
     def _restore_window_geometry(self, config: AppConfig) -> None:
@@ -1408,6 +1412,18 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
 
     def open_live_monitor(self) -> None:
         QDesktopServices.openUrl(QUrl("https://livecenter.tiktok.com/live_monitor?lang=en-US"))
+
+    def report_problem(self) -> None:
+        """Open a new issue, already filled in, so reporting costs one click.
+
+        The application talks to internal Streamlabs endpoints: the day they change
+        something it stops working for everyone, and without this the author would
+        never hear about it. Only the facts that do not identify the machine travel in
+        the link; the paths stay out, because they carry the user's name.
+        """
+
+        QDesktopServices.openUrl(QUrl(issue_url()))
+        self._set_status("Se abrió el navegador para informar del problema")
 
     def handle_ui_update(self) -> None:
         self.refresh_account_info(silent=True)
