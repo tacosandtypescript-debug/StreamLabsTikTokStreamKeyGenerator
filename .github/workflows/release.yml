@@ -134,6 +134,8 @@ jobs:
           --windows-product-version="${{ needs.resolve-version.outputs.version }}" `
           --windows-file-description="StreamLabs TikTok Stream Key Generator" `
           --copyright="Copyright © 2026 Loukious" `
+          --windows-icon-from-ico="assets/icon.ico" `
+          --include-data-dir="assets=assets" `
           StreamLabsTikTokStreamKeyGenerator.py
 
       - name: Compress Executable
@@ -186,6 +188,8 @@ jobs:
           --macos-create-app-bundle \
           --macos-app-version="${{ needs.resolve-version.outputs.version }}" \
           --macos-app-name="StreamLabs TikTok Stream Key Generator" \
+          --macos-app-icon="assets/icon.icns" \
+          --include-data-dir="assets=assets" \
           StreamLabsTikTokStreamKeyGenerator.py
 
       - name: Compress Executable
@@ -235,6 +239,7 @@ jobs:
           --follow-stdlib \
           --follow-imports \
           --prefer-source-code \
+          --include-data-dir="assets=assets" \
           StreamLabsTikTokStreamKeyGenerator.py
 
       - name: Compress Executable

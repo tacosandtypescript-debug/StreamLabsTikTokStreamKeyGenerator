@@ -136,15 +136,19 @@ else
 
   desktop_dir="$HOME/.local/share/applications"
   mkdir -p "$desktop_dir"
-  cat > "$desktop_dir/$APP_NAME.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Generador de clave de TikTok Live (vía Streamlabs)
-Comment=Prepara una sesión RTMP de TikTok Live a través de Streamlabs
-Exec=$installed
-Terminal=false
-Categories=AudioVideo;Utility;
-EOF
+  icon_path="$install_dir/assets/icon.png"
+  {
+    echo "[Desktop Entry]"
+    echo "Type=Application"
+    echo "Name=Generador de clave de TikTok Live (vía Streamlabs)"
+    echo "Comment=Prepara una sesión RTMP de TikTok Live a través de Streamlabs"
+    echo "Exec=$installed"
+    if [ -f "$icon_path" ]; then
+      echo "Icon=$icon_path"
+    fi
+    echo "Terminal=false"
+    echo "Categories=AudioVideo;Utility;"
+  } > "$desktop_dir/$APP_NAME.desktop"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$desktop_dir" || true
 fi
 
