@@ -634,13 +634,179 @@ def test_a_failed_diagnostics_export_tells_the_user(app, tmp_path, monkeypatch):
     assert warnings
 
 
-def test_the_support_menu_offers_both_support_actions(app):
-    labels = [action.text() for action in app.support_btn.menu().actions()]
+def test_the_more_menu_keeps_the_secondary_actions_out_of_the_way(app):
+    labels = [
+        action.text()
+        for action in app.support_btn.menu().actions()
+        if not action.isSeparator()
+    ]
 
     assert labels == [
         "Abrir la carpeta de registros",
         "Guardar informe de diagnóstico",
+        "Ayuda",
+        "Abrir monitor de TikTok",
+        "Donar al autor original",
     ]
+
+
+# --------------------------------------------------------------------------- #
+#  What the window says about itself                                         #
+# --------------------------------------------------------------------------- #
+
+
+def test_the_banner_starts_without_a_token(app):
+    app._refresh_banner()
+
+    assert app.banner.state() == "neutral"
+    assert "Sin token" in app.banner.title_label.text()
+
+
+def test_the_banner_asks_to_validate_an_unvalidated_token(app):
+    app.token_entry.setText("token-value")
+
+    app._refresh_banner()
+
+    assert app.banner.state() == "warn"
+    assert "sin validar" in app.banner.title_label.text().lower()
+
+
+def test_the_banner_is_green_when_the_account_can_emit(app):
+    _validated(app)
+
+    app._refresh_banner()
+
+    assert app.banner.state() == "ok"
+    assert "Listo" in app.banner.title_label.text()
+    assert "@creator" in app.banner.detail_label.text()
+
+
+def test_the_banner_warns_when_the_account_cannot_emit(app):
+    _validated(app)
+    app._account_info = AccountInfo("creator", "pending", False)
+
+    app._refresh_banner()
+
+    assert app.banner.state() == "error"
+    assert "Sin permiso" in app.banner.title_label.text()
+
+
+def test_the_banner_announces_a_prepared_stream(app):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._session_record = ActiveSession("session-1", "Title", "2026-01-01T20:15:00+00:00")
+
+    app._refresh_banner()
+
+    assert app.banner.state() == "live"
+    assert "Directo preparado" in app.banner.title_label.text()
+    assert "desde las" in app.banner.detail_label.text()
+
+
+def test_the_live_permission_is_never_shown_as_a_python_boolean(app):
+    app._set_can_go_live(True)
+    assert app.can_go_live.text() == "Sí"
+    assert app.can_go_live.property("state") == "ok"
+
+    app._set_can_go_live(False)
+    assert app.can_go_live.text() == "No"
+    assert app.can_go_live.property("state") == "error"
+
+    app._set_can_go_live(None)
+    assert app.can_go_live.text() == "—"
+
+
+def test_a_validated_account_never_leaves_the_boolean_on_screen(app):
+    _validated(app)
+
+    app.tiktok_username.setText("creator")
+    app._set_can_go_live(app._account_info.can_be_live)
+
+    assert "True" not in app.can_go_live.text()
+    assert app.can_go_live.text() == "Sí"
+
+
+def test_the_progress_bar_only_spins_while_something_is_running(app):
+    assert app.progress.is_busy() is False
+
+    app._set_operation_busy("account", True)
+    assert app.progress.is_busy() is True
+
+    app._set_operation_busy("account", False)
+    assert app.progress.is_busy() is False
+
+
+def test_the_account_section_summarises_itself(app):
+    _validated(app)
+
+    app._update_controls()
+    assert app.account_section.summary_label.text() == "@creator"
+
+    app.handle_token_change()
+    assert app.account_section.summary_label.text() == "token sin validar"
+
+
+def test_the_account_section_starts_folded_when_a_token_is_saved(app, store, qtbot):
+    store.save(AppConfig(title="Guardado"))
+    window = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(window)
+    window.token_entry.setText("token-guardado")
+
+    window._finish_startup()
+
+    assert window.account_section.is_expanded() is False
+
+
+# --------------------------------------------------------------------------- #
+#  Copying without a dialog                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_copying_confirms_in_the_field_and_opens_no_dialog(app, monkeypatch):
+    dialogs = []
+    monkeypatch.setattr(
+        application.QMessageBox,
+        "information",
+        staticmethod(lambda *args, **kwargs: dialogs.append(args)),
+    )
+    app.stream_url.setText("rtmp://push.tiktok.com/live/")
+
+    app.stream_url.copy_button.click()
+
+    assert dialogs == []
+    assert app.stream_url.is_confirming() is True
+    assert "copiada" in app.app_status.text().lower()
+
+
+def test_copying_the_key_arms_the_clipboard_cleanup(app):
+    app.stream_key.setText("clave-secreta")
+
+    app.stream_key.copy_button.click()
+
+    assert app._clipboard_timer.isActive() is True
+    assert app._clipboard_value == "clave-secreta"
+
+
+def test_an_empty_field_is_not_copied(app, monkeypatch):
+    dialogs = []
+    monkeypatch.setattr(
+        application.QMessageBox,
+        "information",
+        staticmethod(lambda *args, **kwargs: dialogs.append(args)),
+    )
+
+    app.copy_to_clipboard(app.stream_url, False)
+
+    assert dialogs == []
+    assert app.stream_url.is_confirming() is False
+
+
+def test_the_stream_key_can_be_revealed_like_the_token(app):
+    assert app.stream_key.is_revealed() is False
+
+    app.stream_key.reveal_button.click()
+
+    assert app.stream_key.is_revealed() is True
 
 
 # --------------------------------------------------------------------------- #

@@ -11,6 +11,10 @@ a través de Streamlabs.
 
 > No emite vídeo ni configura OBS: eso pasa cuando OBS se conecta con esos datos.
 
+| Tema claro | Tema oscuro |
+|---|---|
+| ![Interfaz en tema claro](docs/captura-clara.png) | ![Interfaz en tema oscuro](docs/captura-oscura.png) |
+
 ---
 
 ## 📥 Instalación
@@ -83,6 +87,12 @@ ejecutes**: vuélvelo a descargar.
 5. Escribe el **título** y la **categoría** → **Preparar directo** → **Copiar URL**
    y **Copiar clave**.
 
+La ventana te dice en todo momento en qué punto estás: el **banner de arriba** cambia
+de color y de texto («Sin token», «Cuenta sin validar», «Listo para preparar el
+directo», «Directo preparado»), y la **barra de abajo** muestra qué está pasando
+mientras se consulta la cuenta o se prepara la sesión. Si ya tienes el token guardado,
+la sección **Cuenta y token** aparece plegada para no estorbarte.
+
 ### Atajos de teclado
 
 | Atajo | Qué hace |
@@ -128,7 +138,7 @@ TikTok puede rechazar el siguiente directo).
 | «No hay almacén seguro» en Linux | Instala `libsecret` (`sudo apt install libsecret-1-0`). |
 | Antivirus avisa | Es por **Cargar desde el PC**, que lee el almacén de Streamlabs Desktop (la misma técnica que usan los ladrones de credenciales). Usa **Iniciar sesión web**. |
 | macOS dice que está dañado | `xattr -dr com.apple.quarantine /ruta/StreamLabsTikTokStreamKeyGenerator.app` |
-| Necesitas ayuda | **Soporte → Guardar informe de diagnóstico** y adjunta el ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
+| Necesitas ayuda | **Más → Guardar informe de diagnóstico** y adjunta el ZIP: lleva tus datos de entorno y el registro, sin tokens ni claves. |
 
 El informe incluye la versión, el sistema, dónde está instalada la aplicación y las
 últimas líneas del registro, todo pasado por un filtro que borra el token y la clave

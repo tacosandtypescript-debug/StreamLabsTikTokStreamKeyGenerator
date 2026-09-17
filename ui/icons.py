@@ -13,6 +13,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
+
 from runtime import is_frozen
 
 LOGGER = logging.getLogger(__name__)
@@ -66,8 +69,6 @@ def icon_path(platform_name: str | None = None) -> Path | None:
 def application_icon(platform_name: str | None = None) -> Any:
     """Return a ``QIcon`` for the window, or ``None`` when there is no artwork."""
 
-    from PySide6.QtGui import QIcon
-
     path = icon_path(platform_name)
     if path is None:
         LOGGER.debug("No application icon was found")
@@ -78,3 +79,77 @@ def application_icon(platform_name: str | None = None) -> Any:
         LOGGER.warning("The application icon could not be loaded: %s", path.name)
         return None
     return icon
+
+
+def _blank_pixmap(size: int) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    return pixmap
+
+
+def _start_painting(pixmap: QPixmap, color: str, size: int) -> QPainter:
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(size / 11.0, 1.2))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    return painter
+
+
+def copy_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn "copy" icon.
+
+    Drawn instead of typed on purpose: an emoji or a symbol glyph depends on the
+    fonts the platform happens to have installed, and shows up as an empty box
+    when they are missing, which is exactly what the previous buttons did.
+    """
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawRoundedRect(
+        QRectF(1.5 * unit, 1.5 * unit, 8.5 * unit, 8.5 * unit), 2 * unit, 2 * unit
+    )
+    painter.drawRoundedRect(
+        QRectF(6 * unit, 6 * unit, 8.5 * unit, 8.5 * unit), 2 * unit, 2 * unit
+    )
+    painter.end()
+    return QIcon(pixmap)
+
+
+def eye_icon(size: int = 16, color: str = "#000000", *, open_eye: bool = True) -> QIcon:
+    """Return a drawn "show/hide" icon."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawEllipse(QRectF(1.5 * unit, 4.0 * unit, 13 * unit, 8 * unit))
+    painter.setBrush(QColor(color))
+    painter.drawEllipse(QRectF(6.4 * unit, 6.4 * unit, 3.2 * unit, 3.2 * unit))
+    if not open_eye:
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(QPointF(2.5 * unit, 13 * unit), QPointF(13.5 * unit, 3 * unit))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def check_icon(size: int = 16, color: str = "#12854a") -> QIcon:
+    """Return a drawn tick, used to confirm a copy without a dialog."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawPolyline(
+        QPolygonF(
+            [
+                QPointF(3 * unit, 8.5 * unit),
+                QPointF(6.5 * unit, 12 * unit),
+                QPointF(13 * unit, 4.5 * unit),
+            ]
+        )
+    )
+    painter.end()
+    return QIcon(pixmap)

@@ -1,9 +1,8 @@
-"""Dark-mode support.
+"""Theme: the palette, the colour tokens and the stylesheet.
 
-Qt 6.5 and newer already report the desktop colour scheme, so the application
-only has to react to it. Setting an explicit palette is what actually makes the
-widgets dark: the default style on Windows follows the system theme, but a
-palette is the portable way to get the same result on every platform.
+Colours live in one table so that every widget asks for a token instead of
+hard-coding a value, which is what keeps the dark theme consistent. The
+stylesheet is generated from that table, so adding a state means adding a row.
 """
 
 from __future__ import annotations
@@ -18,18 +17,77 @@ THEME_ENV_VAR = "STREAMLABS_KEYGEN_THEME"
 LIGHT = "light"
 DARK = "dark"
 
-_DARK_WINDOW = "#1b2430"
-_DARK_BASE = "#141b24"
-_DARK_TEXT = "#e8eef5"
-_DARK_DISABLED = "#6b7a8c"
-_DARK_HIGHLIGHT = "#2563eb"
+_TOKENS: dict[str, dict[str, str]] = {
+    LIGHT: {
+        "bg": "#f2f4f7",
+        "card": "#ffffff",
+        "border": "#dde3ea",
+        "text": "#1b2430",
+        "muted": "#63707f",
+        "disabled": "#a9b3bf",
+        "field": "#ffffff",
+        "fieldBorder": "#c6d0da",
+        "primary": "#2563eb",
+        "primaryHover": "#1d4ed8",
+        "primaryText": "#ffffff",
+        "neutral": "#8794a3",
+        "ok": "#12854a",
+        "warn": "#a16207",
+        "error": "#c0392b",
+        # A prepared stream is an active state, not a problem: red stays for
+        # errors only, which is why this one is the accent blue.
+        "live": "#2563eb",
+    },
+    DARK: {
+        "bg": "#141b24",
+        "card": "#1b2430",
+        "border": "#2b3746",
+        "text": "#e8eef5",
+        "muted": "#93a2b3",
+        "disabled": "#6b7a8c",
+        "field": "#111823",
+        "fieldBorder": "#33415a",
+        "primary": "#3b82f6",
+        "primaryHover": "#2f74e0",
+        "primaryText": "#ffffff",
+        "neutral": "#7c8b9c",
+        "ok": "#34d399",
+        "warn": "#fbbf24",
+        "error": "#f87171",
+        "live": "#3b82f6",
+    },
+}
+
+# The states a banner can be in; the accent of each one is a colour token.
+BANNER_STATES = ("neutral", "ok", "warn", "error", "live")
+
+_theme = LIGHT
+
+
+def current_theme() -> str:
+    """Return the theme that was applied last."""
+
+    return _theme
+
+
+def color_tokens(theme: str | None = None) -> dict[str, str]:
+    """Return the colour table of ``theme`` (the active one by default)."""
+
+    return _TOKENS.get(theme or _theme, _TOKENS[LIGHT])
+
+
+def state_accent(theme: str, state: str) -> str:
+    """Return the accent colour of a banner state."""
+
+    tokens = color_tokens(theme)
+    return tokens.get(state, tokens["neutral"])
 
 
 def resolve_theme(requested: str | None, system_is_dark: bool | None) -> str:
     """Decide the theme to use.
 
-    An explicit choice always wins; otherwise the desktop decides, and an
-    unknown answer from the platform falls back to the light theme.
+    An explicit choice always wins; otherwise the desktop decides, and an unknown
+    answer from the platform falls back to the light theme.
     """
 
     normalized = (requested or "").strip().lower()
@@ -63,10 +121,11 @@ def dark_palette() -> Any:
 
     from PySide6.QtGui import QColor, QPalette
 
-    window = QColor(_DARK_WINDOW)
-    base = QColor(_DARK_BASE)
-    text = QColor(_DARK_TEXT)
-    disabled = QColor(_DARK_DISABLED)
+    tokens = color_tokens(DARK)
+    window = QColor(tokens["card"])
+    base = QColor(tokens["field"])
+    text = QColor(tokens["text"])
+    disabled = QColor(tokens["disabled"])
 
     palette = QPalette()
     roles = (
@@ -80,8 +139,8 @@ def dark_palette() -> Any:
         (QPalette.ColorRole.ToolTipBase, base),
         (QPalette.ColorRole.ToolTipText, text),
         (QPalette.ColorRole.PlaceholderText, disabled),
-        (QPalette.ColorRole.Highlight, QColor(_DARK_HIGHLIGHT)),
-        (QPalette.ColorRole.HighlightedText, QColor("#ffffff")),
+        (QPalette.ColorRole.Highlight, QColor(tokens["primary"])),
+        (QPalette.ColorRole.HighlightedText, QColor(tokens["primaryText"])),
     )
     for role, color in roles:
         palette.setColor(role, color)
@@ -97,6 +156,110 @@ def dark_palette() -> Any:
     return palette
 
 
+def stylesheet(theme: str) -> str:
+    """Return the stylesheet of ``theme``, generated from its colour tokens."""
+
+    t = color_tokens(theme)
+    return f"""
+    QWidget {{ color: {t["text"]}; }}
+    QMainWindow, QWidget#central, QScrollArea, QWidget#scrollBody {{
+        background: {t["bg"]};
+    }}
+    QScrollArea {{ border: none; }}
+    QScrollBar:vertical {{ background: {t["bg"]}; width: 10px; margin: 0; }}
+    QScrollBar::handle:vertical {{ background: {t["border"]}; border-radius: 5px; }}
+    QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+
+    QFrame#card, QFrame#banner {{
+        background: {t["card"]};
+        border: 1px solid {t["border"]};
+        border-radius: 10px;
+    }}
+    QFrame#banner {{ border-left: 4px solid {t["neutral"]}; }}
+    QFrame#banner[state="ok"] {{ border-left-color: {t["ok"]}; }}
+    QFrame#banner[state="warn"] {{ border-left-color: {t["warn"]}; }}
+    QFrame#banner[state="error"] {{ border-left-color: {t["error"]}; }}
+    QFrame#banner[state="live"] {{ border-left-color: {t["live"]}; }}
+
+    QLabel#bannerTitle {{ font-size: 15px; font-weight: 600; }}
+    QLabel#bannerDetail, QLabel#muted, QLabel#cardSummary {{ color: {t["muted"]}; }}
+    QLabel#cardTitle {{ color: {t["muted"]}; font-weight: 600; }}
+    QLabel#fieldLabel {{ color: {t["muted"]}; }}
+
+    QLabel#badge {{ color: {t["muted"]}; font-weight: 600; }}
+    QLabel#badge[state="ok"] {{ color: {t["ok"]}; }}
+    QLabel#badge[state="warn"] {{ color: {t["warn"]}; }}
+    QLabel#badge[state="error"] {{ color: {t["error"]}; }}
+
+    QLineEdit {{
+        background: {t["field"]};
+        border: 1px solid {t["fieldBorder"]};
+        border-radius: 6px;
+        padding: 6px 8px;
+        selection-background-color: {t["primary"]};
+    }}
+    QLineEdit:focus {{ border: 1px solid {t["primary"]}; }}
+    QLineEdit[readOnly="true"] {{ background: {t["card"]}; }}
+    QLineEdit:disabled {{ color: {t["disabled"]}; background: {t["bg"]}; }}
+
+    QPushButton {{
+        background: {t["card"]};
+        border: 1px solid {t["fieldBorder"]};
+        border-radius: 6px;
+        padding: 7px 14px;
+    }}
+    QPushButton:hover {{ border-color: {t["primary"]}; }}
+    QPushButton:pressed {{ background: {t["bg"]}; }}
+    QPushButton:disabled {{ color: {t["disabled"]}; border-color: {t["border"]}; }}
+
+    QPushButton#primary {{
+        background: {t["primary"]};
+        border: 1px solid {t["primary"]};
+        color: {t["primaryText"]};
+        font-weight: 600;
+        padding: 9px 22px;
+    }}
+    QPushButton#primary:hover {{ background: {t["primaryHover"]}; }}
+    QPushButton#primary:disabled {{
+        background: {t["bg"]};
+        border-color: {t["border"]};
+        color: {t["disabled"]};
+    }}
+
+    QToolButton {{ border: none; background: transparent; padding: 4px; border-radius: 6px; }}
+    QToolButton:hover {{ background: {t["bg"]}; }}
+    QToolButton#sectionToggle {{ font-weight: 600; text-align: left; padding: 6px 4px; }}
+
+    QListWidget {{
+        background: {t["card"]};
+        border: 1px solid {t["fieldBorder"]};
+        border-radius: 6px;
+    }}
+    QStatusBar {{ background: {t["card"]}; border-top: 1px solid {t["border"]}; }}
+    QStatusBar::item {{ border: none; }}
+    QMenu {{ background: {t["card"]}; border: 1px solid {t["border"]}; padding: 4px; }}
+    QMenu::item {{ padding: 6px 18px; border-radius: 4px; }}
+    QMenu::item:selected {{ background: {t["primary"]}; color: {t["primaryText"]}; }}
+    QProgressBar {{ background: {t["bg"]}; border: 1px solid {t["border"]}; border-radius: 4px; }}
+    QProgressBar::chunk {{ background: {t["primary"]}; border-radius: 4px; }}
+    QCheckBox {{ spacing: 8px; }}
+    QCheckBox::indicator {{
+        width: 15px;
+        height: 15px;
+        border: 1px solid {t["fieldBorder"]};
+        border-radius: 4px;
+        background: {t["field"]};
+    }}
+    QCheckBox::indicator:hover {{ border-color: {t["primary"]}; }}
+    QCheckBox::indicator:checked {{
+        background: {t["primary"]};
+        border-color: {t["primary"]};
+    }}
+    QCheckBox::indicator:disabled {{ border-color: {t["border"]}; background: {t["bg"]}; }}
+    QMessageBox {{ background: {t["card"]}; }}
+    """
+
+
 def apply_theme(app: Any, requested: str | None = None) -> str:
     """Apply the resolved theme and return its name.
 
@@ -105,10 +268,15 @@ def apply_theme(app: Any, requested: str | None = None) -> str:
     desktop".
     """
 
+    global _theme
+
     if requested is None:
         requested = os.environ.get(THEME_ENV_VAR)
     theme = resolve_theme(requested, system_prefers_dark())
+
     if theme == DARK:
         app.setStyle("Fusion")
         app.setPalette(dark_palette())
+    app.setStyleSheet(stylesheet(theme))
+    _theme = theme
     return theme

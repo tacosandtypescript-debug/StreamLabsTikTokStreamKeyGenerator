@@ -88,6 +88,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._pending_legacy: tuple[Path, ConfigLoadResult] | None = None
         self._account_info: AccountInfo | None = None
         self._validated_token: str | None = None
+        # When the account was last confirmed, so the banner can say how old the
+        # validation is.
+        self._validated_at: datetime | None = None
         self._category_id = ""
         self._active_session: StreamSession | None = None
         self._session_record: ActiveSession | None = None
@@ -203,6 +206,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         if self._pending_legacy:
             self._prompt_legacy_migration()
         elif self.token_entry.text():
+            # With a token already saved, the panel is not what the user came for.
+            self.account_section.set_expanded(False, animate=False)
             self.refresh_account_info(silent=True)
 
         self._check_pending_session()
@@ -378,22 +383,20 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         )
 
     def toggle_token_visibility(self) -> None:
-        if self.token_entry.echoMode() == QLineEdit.EchoMode.Normal:
-            self.token_entry.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_token_btn.setText("👁️")
-            self.toggle_token_btn.setToolTip("Mostrar el token")
-        else:
-            self.token_entry.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_token_btn.setText("👁️‍🗨️")
-            self.toggle_token_btn.setToolTip("Ocultar el token")
+        visible = self.token_entry.echoMode() == QLineEdit.EchoMode.Normal
+        self.token_entry.setEchoMode(
+            QLineEdit.EchoMode.Password if visible else QLineEdit.EchoMode.Normal
+        )
+        self._set_token_reveal_button(not visible)
 
     def handle_token_change(self) -> None:
         if self._loading_config:
             return
         self._validated_token = None
+        self._validated_at = None
         self._account_info = None
         self._category_id = ""
-        self.suggestions_list.hide()
+        self._set_suggestions_visible(False)
         self._set_status("Token pendiente de validar" if self.token_entry.text() else "Sin token")
         self._update_controls()
 
@@ -426,10 +429,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         if token != self.token_entry.text().strip():
             return
         self._validated_token = token
+        self._validated_at = datetime.now()
         self._account_info = info
         self.tiktok_username.setText(info.username)
-        self.app_status.setText(info.application_status)
-        self.can_go_live.setText(str(info.can_be_live))
+        self._set_can_go_live(info.can_be_live)
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
         LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
         self._update_controls()
@@ -444,9 +447,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         LOGGER.warning("Account validation failed: %s", type(exc).__name__)
         self._account_info = None
         self._validated_token = None
+        self._validated_at = None
         self.tiktok_username.clear()
-        self.app_status.clear()
-        self.can_go_live.clear()
+        self._set_can_go_live(None)
         self._set_status(safe_error_message(exc))
         self._update_controls()
         if not silent:
@@ -467,7 +470,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
 
     def load_local_token(self) -> None:
         self._set_operation_busy("local", True)
-        self.load_local_btn.setText("Searching…")
+        self.load_local_btn.setText("Buscando…")
 
         self._run_worker(
             find_local_token,
@@ -542,13 +545,13 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         if not text.strip() or not self._validated_token:
             self._pending_search = None
             self._search_timer.stop()
-            self.suggestions_list.hide()
+            self._set_suggestions_visible(False)
             self._update_controls()
             return
 
         if text.strip().casefold() == "other":
             self._category_id = ""
-            self.suggestions_list.hide()
+            self._set_suggestions_visible(False)
             self._update_controls()
             return
 
@@ -613,7 +616,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
     def _category_search_failed(self, serial: int, exc: Exception) -> None:
         if serial != self._search_serial:
             return
-        self.suggestions_list.hide()
+        self._set_suggestions_visible(False)
         self._set_status(safe_error_message(exc))
         self._update_controls()
 
@@ -623,12 +626,12 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             item = QListWidgetItem(category.full_name)
             item.setData(Qt.ItemDataRole.UserRole, category.game_mask_id)
             self.suggestions_list.addItem(item)
-        self.suggestions_list.setVisible(bool(categories))
+        self._set_suggestions_visible(bool(categories))
 
     def handle_suggestion_selected(self, item: QListWidgetItem) -> None:
         self._category_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
         self.game_category.setText(item.text())
-        self.suggestions_list.hide()
+        self._set_suggestions_visible(False)
         self._update_controls()
 
     def start_stream(self) -> None:
@@ -742,20 +745,23 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         )
         self._close_after_end()
 
-    def copy_to_clipboard(self, widget: QLineEdit, sensitive: bool) -> None:
-        value = widget.text()
+    def copy_to_clipboard(self, field: Any, sensitive: bool) -> None:
+        value = field.text()
         if not value:
             return
         QApplication.clipboard().setText(value)
         if sensitive:
             self._clipboard_value = value
             self._clipboard_timer.start()
-        QMessageBox.information(
-            self,
-            "Copiado",
-            "Copiado. La clave de retransmisión se retirará del portapapeles en 60 segundos."
+        # The button confirms in place: a modal dialog per copy was two extra
+        # clicks for something that happens several times before every stream.
+        flash = getattr(field, "flash_copied", None)
+        if callable(flash):
+            flash()
+        self._set_status(
+            "Clave copiada; se retira del portapapeles en 60 segundos"
             if sensitive
-            else "Texto copiado al portapapeles.",
+            else "URL copiada al portapapeles"
         )
 
     def _clear_sensitive_clipboard(self) -> None:
@@ -932,6 +938,13 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self.load_online_btn.setEnabled(not token_busy and not account_busy)
         self.save_token_btn.setEnabled(bool(self._validated_token))
 
+        # One place keeps the two "how are we doing" indicators honest: the bar
+        # that spins while something is happening and the banner that says in
+        # which state the application is.
+        self.progress.set_busy(bool(self._busy_operations))
+        self._sync_account_summary()
+        self._refresh_banner()
+
     def _can_start_stream(self) -> bool:
         if self._active_session or self._busy_operations & {"start", "end", "account"}:
             return False
@@ -957,6 +970,95 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
 
     def _set_status(self, text: str) -> None:
         self.app_status.setText(text)
+
+    # ------------------------------------------------------------------ #
+    #  State shown to the user                                            #
+    # ------------------------------------------------------------------ #
+
+    def _set_can_go_live(self, can: bool | None) -> None:
+        """Show the live permission as a badge instead of a raw boolean.
+
+        It used to print ``True``: a Python value, in English, in the middle of a
+        Spanish interface.
+        """
+
+        if can is None:
+            self.can_go_live.setText("—")
+            state = "neutral"
+        else:
+            self.can_go_live.setText("Sí" if can else "No")
+            state = "ok" if can else "error"
+        self.can_go_live.setProperty("state", state)
+        self.can_go_live.style().unpolish(self.can_go_live)
+        self.can_go_live.style().polish(self.can_go_live)
+
+    def _sync_account_summary(self) -> None:
+        """Keep the folded panel's one-line summary up to date."""
+
+        if self._account_info is not None and self._validated_token:
+            summary = f"@{self._account_info.username}"
+        elif self.token_entry.text().strip():
+            summary = "token sin validar"
+        else:
+            summary = "sin token"
+        self.account_section.set_summary(summary)
+
+    @staticmethod
+    def _session_start_time(record: ActiveSession) -> str:
+        """Return the local start time of a recorded session, or an empty string."""
+
+        try:
+            started = datetime.fromisoformat(record.started_at)
+        except (TypeError, ValueError):
+            return ""
+        return started.astimezone().strftime("%H:%M")
+
+    def _refresh_banner(self) -> None:
+        """Put the state of the application into one sentence."""
+
+        if self._active_session is not None:
+            detail = "Copia la URL y la clave en OBS para empezar a emitir."
+            if self._session_record is not None:
+                started = self._session_start_time(self._session_record)
+                if started:
+                    detail = f"Sesión abierta desde las {started}. {detail}"
+            self._set_banner("live", "Directo preparado", detail)
+            return
+
+        token = self.token_entry.text().strip()
+        if not token:
+            self._set_banner(
+                "neutral",
+                "Sin token de Streamlabs",
+                "Carga el token y valida la cuenta para poder preparar el directo.",
+            )
+            return
+
+        info = self._account_info
+        if info is None or self._validated_token != token:
+            self._set_banner(
+                "warn",
+                "Cuenta sin validar",
+                "Pulsa «Actualizar datos de la cuenta» para comprobar el permiso de emisión.",
+            )
+            return
+
+        detail = f"@{info.username} · {info.application_status}"
+        if self._validated_at is not None:
+            detail += f" · validado a las {self._validated_at.strftime('%H:%M')}"
+        if not info.can_be_live:
+            self._set_banner(
+                "error",
+                "Sin permiso para emitir",
+                f"{detail}. Esta cuenta no tiene acceso a TikTok LIVE vía Streamlabs.",
+            )
+            return
+        self._set_banner("ok", "Listo para preparar el directo", f"{detail}.")
+
+    def open_donation_page(self) -> None:
+        """Open the original author's donation page."""
+
+        QDesktopServices.openUrl(QUrl("https://buymeacoffee.com/loukious"))
 
     @staticmethod
 
