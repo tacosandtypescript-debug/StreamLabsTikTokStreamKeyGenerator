@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.icons import check_icon, copy_icon, eye_icon
+from ui.text import strip_unsupported_emoji
 from ui.theme import color_tokens, current_theme, state_accent
 
 # Long enough to be noticed, short enough not to feel slow. Anything above
@@ -377,7 +378,9 @@ class ProfileCard(QWidget):
         self.stats_label.setText(" · ".join(parts))
         self.stats_label.setVisible(bool(parts))
 
-        self.bio_label.setText(bio)
+        # Emoji come from TikTok inside the biography; if this machine cannot draw
+        # them, they are dropped here rather than shown as empty boxes.
+        self.bio_label.setText(strip_unsupported_emoji(bio))
         self.bio_label.setVisible(bool(bio))
 
     def numbers_text(self) -> str:

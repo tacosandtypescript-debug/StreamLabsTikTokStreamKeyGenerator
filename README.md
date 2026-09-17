@@ -129,6 +129,11 @@ arranque. **Usar la de la cuenta** las fuerza cuando quieras, y también puedes 
 **una imagen tuya** con *Elegir imagen…*, y entonces el avatar no se consulta nunca más.
 **Quitar** vuelve a la inicial dibujada.
 
+Los emoji de la bio vienen de TikTok. Si tu sistema tiene una fuente de emoji (Windows
+la trae de serie), se dibujan; si no la tiene, **se quitan** en lugar de aparecer como
+cuadros vacíos: una frase sin emoji se lee perfectamente, y un cuadro parece una
+aplicación rota.
+
 Si no hay foto, o el servicio no contesta, se dibuja un **círculo con tu inicial** con un
 color que depende solo del nombre: dos cuentas nunca se confunden.
 

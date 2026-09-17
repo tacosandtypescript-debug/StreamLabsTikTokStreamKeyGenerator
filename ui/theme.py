@@ -290,5 +290,12 @@ def apply_theme(app: Any, requested: str | None = None) -> str:
         app.setStyle("Fusion")
         app.setPalette(dark_palette())
     app.setStyleSheet(stylesheet(theme))
+
+    # Emoji end up on screen inside third-party text (the profile biography), and
+    # not every Windows or Linux install can draw them out of the box.
+    from ui.text import install_emoji_fallback
+
+    install_emoji_fallback(app)
+
     _theme = theme
     return theme
