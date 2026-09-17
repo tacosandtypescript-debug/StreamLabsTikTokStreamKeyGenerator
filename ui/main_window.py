@@ -39,6 +39,7 @@ from ui.geometry import (
     capture_geometry,
     restore_geometry,
     sanitized_geometry,
+    sanitized_position,
 )
 from ui.shortcuts import install_shortcuts
 from ui.update_flow import UpdateFlowMixin
@@ -206,9 +207,13 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         if self._pending_legacy:
             self._prompt_legacy_migration()
         elif self.token_entry.text():
-            # With a token already saved, the panel is not what the user came for.
-            self.account_section.set_expanded(False, animate=False)
+            # A saved token means the account page is not what the user came for.
+            self.show_stream_page()
             self.refresh_account_info(silent=True)
+        else:
+            # First run: without a token there is nothing to prepare yet, so the
+            # account page is where the work starts.
+            self.show_account_page()
 
         self._check_pending_session()
         self._defer(3000, self._show_donation_and_schedule_update)
@@ -309,19 +314,42 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._restore_window_geometry(config)
 
     def _restore_window_geometry(self, config: AppConfig) -> None:
-        """Give the window back the size and position it had last time."""
+        """Give the window back the position it had last time.
+
+        The window is fixed-size, so only the position is restored: its size
+        comes from its own content.
+        """
+
+        screens = available_screens()
+        if self._has_fixed_size():
+            position = sanitized_position(
+                self.width(),
+                self.height(),
+                config.window_x,
+                config.window_y,
+                screens,
+            )
+            if position is not None:
+                self.move(*position)
+            return
 
         geometry = sanitized_geometry(
             config.window_width,
             config.window_height,
             config.window_x,
             config.window_y,
-            available_screens(),
+            screens,
             config.window_maximized,
         )
         if geometry is None:
             return
         restore_geometry(self, geometry)
+
+    def _has_fixed_size(self) -> bool:
+        """Return whether the window cannot be resized at all."""
+
+        minimum = self.minimumSize()
+        return minimum.width() > 0 and minimum == self.maximumSize()
 
     def _config_from_ui(self) -> AppConfig:
         geometry = capture_geometry(self)
@@ -996,7 +1024,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self.can_go_live.style().polish(self.can_go_live)
 
     def _sync_account_summary(self) -> None:
-        """Keep the folded panel's one-line summary up to date."""
+        """Say on the button who the account belongs to, without opening it."""
 
         if self._account_info is not None and self._validated_token:
             summary = f"@{self._account_info.username}"
@@ -1004,7 +1032,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             summary = "token sin validar"
         else:
             summary = "sin token"
-        self.account_section.set_summary(summary)
+        self.account_btn.setText(f"Cuenta y token · {summary}")
 
     @staticmethod
     def _session_start_time(record: ActiveSession) -> str:

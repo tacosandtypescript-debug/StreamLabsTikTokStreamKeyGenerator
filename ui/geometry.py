@@ -47,6 +47,28 @@ def _overlaps_any_screen(
     return False
 
 
+def sanitized_position(
+    width: int,
+    height: int,
+    x: int | None,
+    y: int | None,
+    screens: Sequence[ScreenRect] = (),
+) -> tuple[int, int] | None:
+    """Return a usable ``(x, y)``, or ``None`` when the window should be centred.
+
+    Used for a resizable window and for a fixed-size one, where only the position
+    can be restored.
+    """
+
+    if x is None or y is None:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    if screens and not _overlaps_any_screen(width, height, int(x), int(y), screens):
+        return None
+    return int(x), int(y)
+
+
 def sanitized_geometry(
     width: int | None,
     height: int | None,
@@ -69,11 +91,10 @@ def sanitized_geometry(
     width = max(int(width), MINIMUM_WIDTH)
     height = max(int(height), MINIMUM_HEIGHT)
 
-    if x is None or y is None:
+    position = sanitized_position(width, height, x, y, screens)
+    if position is None:
         return WindowGeometry(width, height, maximized=maximized)
-    if screens and not _overlaps_any_screen(width, height, int(x), int(y), screens):
-        return WindowGeometry(width, height, maximized=maximized)
-    return WindowGeometry(width, height, int(x), int(y), maximized)
+    return WindowGeometry(width, height, position[0], position[1], maximized)
 
 
 def available_screens() -> list[ScreenRect]:
@@ -88,13 +109,18 @@ def available_screens() -> list[ScreenRect]:
     return screens
 
 
-def restore_geometry(window: Any, geometry: WindowGeometry) -> None:
-    """Apply ``geometry`` to ``window``."""
+def restore_geometry(window: Any, geometry: WindowGeometry, *, size: bool = True) -> None:
+    """Apply ``geometry`` to ``window``.
 
-    window.resize(geometry.width, geometry.height)
+    ``size=False`` restores only the position, which is what a fixed-size window
+    needs: its size comes from its content, not from what was saved.
+    """
+
+    if size:
+        window.resize(geometry.width, geometry.height)
     if geometry.x is not None and geometry.y is not None:
         window.move(geometry.x, geometry.y)
-    if geometry.maximized:
+    if size and geometry.maximized:
         from PySide6.QtCore import Qt
 
         window.setWindowState(window.windowState() | Qt.WindowState.WindowMaximized)

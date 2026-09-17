@@ -21,6 +21,7 @@ from streamlabs_client import (
 from ui import main_window as application
 from ui.main_window import StreamApp
 from ui.shortcuts import SHORTCUTS
+from ui.window_ui import PAGE_ACCOUNT, PAGE_STREAM
 
 
 class FakeBackend:
@@ -530,28 +531,23 @@ def test_a_silent_validation_never_pops_the_renewal_dialog(app, qtbot, monkeypat
 # --------------------------------------------------------------------------- #
 
 
-def test_the_window_size_and_position_survive_a_restart(app, store, qtbot):
-    app.resize(1234, 876)
+def test_the_window_position_survives_a_restart(app, store, qtbot):
     app.move(60, 40)
     assert app.save_config(False) is True
 
     second = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(second)
 
-    assert (second.width(), second.height()) == (1234, 876)
     assert (second.x(), second.y()) == (60, 40)
 
 
 def test_a_remembered_position_with_no_screen_left_is_ignored(app, store, qtbot):
-    app.resize(1000, 700)
     app.save_config(False)
     saved = app.config_store.load().config
     app.config_store.save(
         AppConfig(
             title=saved.title,
             game=saved.game,
-            window_width=1000,
-            window_height=700,
             window_x=40000,
             window_y=40000,
         )
@@ -560,7 +556,6 @@ def test_a_remembered_position_with_no_screen_left_is_ignored(app, store, qtbot)
     second = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(second)
 
-    assert (second.width(), second.height()) == (1000, 700)
     assert (second.x(), second.y()) != (40000, 40000)
 
 
@@ -737,17 +732,17 @@ def test_the_progress_bar_only_spins_while_something_is_running(app):
     assert app.progress.is_busy() is False
 
 
-def test_the_account_section_summarises_itself(app):
+def test_the_account_button_says_whose_account_it_is(app):
     _validated(app)
 
     app._update_controls()
-    assert app.account_section.summary_label.text() == "@creator"
+    assert app.account_btn.text() == "Cuenta y token · @creator"
 
     app.handle_token_change()
-    assert app.account_section.summary_label.text() == "token sin validar"
+    assert app.account_btn.text() == "Cuenta y token · token sin validar"
 
 
-def test_the_account_section_starts_folded_when_a_token_is_saved(app, store, qtbot):
+def test_the_account_page_is_not_shown_when_a_token_is_saved(app, store, qtbot):
     store.save(AppConfig(title="Guardado"))
     window = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(window)
@@ -755,7 +750,33 @@ def test_the_account_section_starts_folded_when_a_token_is_saved(app, store, qtb
 
     window._finish_startup()
 
-    assert window.account_section.is_expanded() is False
+    assert window.current_page() == PAGE_STREAM
+
+
+def test_the_account_page_opens_on_the_first_run(app, store, qtbot):
+    window = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(window)
+
+    window._finish_startup()
+
+    assert window.current_page() == PAGE_ACCOUNT
+
+
+def test_both_pages_can_be_reached(app):
+    assert app.current_page() == PAGE_STREAM
+
+    app.account_btn.click()
+    assert app.current_page() == PAGE_ACCOUNT
+
+    app.back_btn.click()
+    assert app.current_page() == PAGE_STREAM
+
+
+def test_the_window_is_small_and_cannot_be_resized(app):
+    assert app.minimumSize() == app.maximumSize()
+    # Small enough to sit next to OBS on any screen.
+    assert 320 <= app.width() <= 760
+    assert 320 <= app.height() <= 760
 
 
 # --------------------------------------------------------------------------- #

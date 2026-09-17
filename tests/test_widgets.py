@@ -1,4 +1,4 @@
-"""The reusable widgets: banner, copy field, folding section and progress bar."""
+"""The reusable widgets: banner, copy field and progress bar."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from ui.theme import BANNER_STATES, state_accent
 from ui.widgets import (
     ANIMATION_MS,
     COPIED_FEEDBACK_MS,
-    CollapsibleSection,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
@@ -158,44 +157,6 @@ def test_the_copy_field_keeps_the_line_edit_interface(qtbot):
     field.clear()
     assert field.text() == ""
     assert field.is_confirming() is False
-
-
-def test_the_folding_section_starts_open_and_closes(qtbot):
-    section = CollapsibleSection("Cuenta")
-    qtbot.addWidget(section)
-
-    assert section.is_expanded() is True
-
-    section.set_expanded(False)
-    qtbot.waitUntil(
-        lambda: section.animation().state() == QAbstractAnimation.State.Stopped,
-        timeout=2000,
-    )
-
-    assert section.is_expanded() is False
-    assert section.body.maximumHeight() == 0
-
-
-def test_the_folding_section_can_start_closed_and_open(qtbot):
-    section = CollapsibleSection("Cuenta", expanded=False)
-    qtbot.addWidget(section)
-
-    assert section.is_expanded() is False
-    assert section.body.maximumHeight() == 0
-
-    section.set_expanded(True)
-    qtbot.waitUntil(lambda: section.body.maximumHeight() > 0, timeout=2000)
-
-    assert section.is_expanded() is True
-
-
-def test_the_folding_section_shows_a_summary(qtbot):
-    section = CollapsibleSection("Cuenta")
-    qtbot.addWidget(section)
-
-    section.set_summary("@alguien")
-
-    assert section.summary_label.text() == "@alguien"
 
 
 def test_the_animator_can_be_told_the_natural_height(qtbot):

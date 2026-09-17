@@ -11,6 +11,7 @@ from ui.geometry import (
     capture_geometry,
     restore_geometry,
     sanitized_geometry,
+    sanitized_position,
 )
 
 SCREENS = [(0, 0, 1920, 1080), (1920, 0, 1280, 1024)]
@@ -86,3 +87,37 @@ def test_capture_and_restore_round_trip(qtbot):
 
     assert (restored.width(), restored.height()) == (1111, 777)
     assert (restored.x(), restored.y()) == (150, 90)
+
+
+def test_a_position_is_kept_when_it_lands_on_a_screen():
+    assert sanitized_position(560, 560, 120, 80, SCREENS) == (120, 80)
+
+
+def test_a_position_for_a_fixed_window_with_no_screen_left_is_dropped():
+    assert sanitized_position(560, 560, 9000, 9000, SCREENS) is None
+
+
+def test_a_position_without_screen_information_is_trusted():
+    assert sanitized_position(560, 560, 3000, 3000, ()) == (3000, 3000)
+
+
+def test_a_missing_half_of_the_position_drops_it():
+    assert sanitized_position(560, 560, None, 40, SCREENS) is None
+    assert sanitized_position(560, 560, 40, None, SCREENS) is None
+
+
+def test_a_window_without_a_size_gets_no_position():
+    assert sanitized_position(0, 0, 40, 40, SCREENS) is None
+
+
+def test_a_fixed_window_restores_only_the_position(qtbot):
+    # A fixed-size window cannot be resized, so the saved size is ignored.
+    widget = QWidget()
+    qtbot.addWidget(widget)
+    widget.setFixedSize(300, 200)
+    widget.move(150, 90)
+
+    restore_geometry(widget, WindowGeometry(999, 999, 150, 90), size=False)
+
+    assert (widget.width(), widget.height()) == (300, 200)
+    assert (widget.x(), widget.y()) == (150, 90)

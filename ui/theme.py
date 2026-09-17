@@ -226,6 +226,16 @@ def stylesheet(theme: str) -> str:
         color: {t["disabled"]};
     }}
 
+    QPushButton#link {{
+        background: transparent;
+        border: none;
+        color: {t["primary"]};
+        text-align: left;
+        padding: 4px 2px;
+    }}
+    QPushButton#link:hover {{ color: {t["primaryHover"]}; }}
+    QPushButton#link:disabled {{ color: {t["disabled"]}; }}
+
     QToolButton {{ border: none; background: transparent; padding: 4px; border-radius: 6px; }}
     QToolButton:hover {{ background: {t["bg"]}; }}
     QToolButton#sectionToggle {{ font-weight: 600; text-align: left; padding: 6px 4px; }}

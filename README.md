@@ -11,9 +11,13 @@ a través de Streamlabs.
 
 > No emite vídeo ni configura OBS: eso pasa cuando OBS se conecta con esos datos.
 
-| Tema claro | Tema oscuro |
+| Ventana principal, tema claro | Ventana principal, tema oscuro |
 |---|---|
 | ![Interfaz en tema claro](docs/captura-clara.png) | ![Interfaz en tema oscuro](docs/captura-oscura.png) |
+
+La pantalla de cuenta, donde se carga el token y se comprueba el permiso de emisión:
+
+![Pantalla de cuenta y token](docs/captura-cuenta.png)
 
 ---
 
@@ -87,11 +91,17 @@ ejecutes**: vuélvelo a descargar.
 5. Escribe el **título** y la **categoría** → **Preparar directo** → **Copiar URL**
    y **Copiar clave**.
 
-La ventana te dice en todo momento en qué punto estás: el **banner de arriba** cambia
-de color y de texto («Sin token», «Cuenta sin validar», «Listo para preparar el
-directo», «Directo preparado»), y la **barra de abajo** muestra qué está pasando
-mientras se consulta la cuenta o se prepara la sesión. Si ya tienes el token guardado,
-la sección **Cuenta y token** aparece plegada para no estorbarte.
+La ventana es **pequeña y de tamaño fijo**: mide exactamente lo que mide su
+contenido, no se redimensiona y no tiene zonas vacías. Te dice en todo momento en
+qué punto estás: el **banner de arriba** cambia de color y de texto («Sin token»,
+«Cuenta sin validar», «Listo para preparar el directo», «Directo preparado»), y la
+**barra de abajo** muestra qué está pasando mientras se consulta la cuenta o se
+prepara la sesión.
+
+El token y el permiso de emisión están en una **segunda pantalla**, para que la
+principal tenga solo lo que se usa antes de cada directo: se entra con el botón
+**Cuenta y token** y se vuelve con **Volver al directo**. La primera vez que abres
+la aplicación, esa pantalla es la que aparece.
 
 ### Atajos de teclado
 
