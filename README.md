@@ -244,3 +244,13 @@ repositorio es una versión derivada, endurecida y traducida.
 
 Las fotos de perfil se obtienen con [unavatar.io](https://unavatar.io) y los datos
 públicos del perfil, con [microlink.io](https://microlink.io).
+
+### El proyecto original
+
+Este repositorio deriva de
+[Loukious/StreamLabsTikTokStreamKeyGenerator](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator)
+y su historia viene de allí: el primer commit es el mismo. Está **al día** con él, y no
+se sincroniza solo a propósito —la aplicación se ha reescrito entera, así que un merge
+automático daría conflictos en casi todos los ficheros—. En su lugar hay un
+[aviso semanal](.github/workflows/upstream-watch.yml) que abre una incidencia cuando el
+original publica algo nuevo, con la lista de cambios; cerrarla significa «visto».

@@ -1,0 +1,104 @@
+name: Aviso del proyecto original
+
+# De qué va esto: la aplicación deriva de Loukious/StreamLabsTikTokStreamKeyGenerator
+# y ese repositorio lleva su propio ritmo. No se sincroniza solo a propósito —la
+# aplicación se ha reescrito entera (interfaz, módulos, pruebas) y un merge automático
+# daría conflictos en casi todos los ficheros—, pero conviene enterarse de que hay
+# cambios: este trabajo mira si el original publicó algo nuevo y, si es así, abre una
+# incidencia con la lista.
+#
+# Cerrar esa incidencia significa «visto, no hace falta repetirlo»: solo se abre otra
+# cuando el original publique un commit distinto.
+
+on:
+  schedule:
+    # Todos los lunes a las 08:00 UTC.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Traer el repositorio y el original
+        uses: actions/checkout@v4
+        with:
+          # La historia completa hace falta para comparar con el original.
+          fetch-depth: 0
+
+      - name: Comparar
+        id: compare
+        env:
+          UPSTREAM: Loukious/StreamLabsTikTokStreamKeyGenerator
+        run: |
+          set -euo pipefail
+          # Idempotente: en un runner nuevo el remoto no existe, pero volver a
+          # añadirlo no debe romper el trabajo si alguna vez sí está.
+          git remote add upstream "https://github.com/$UPSTREAM.git" 2>/dev/null \
+            || git remote set-url upstream "https://github.com/$UPSTREAM.git"
+          git fetch --quiet upstream main
+
+          missing="$(git rev-list --count HEAD..upstream/main)"
+          sha="$(git rev-parse upstream/main)"
+          echo "commits del original que faltan: $missing"
+          echo "original en $sha"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+          if [ "$missing" = "0" ]; then
+            echo "Al día con el original: no hay nada que avisar."
+            exit 0
+          fi
+
+          {
+            echo "body<<__BODY__"
+            echo "El repositorio del que deriva este tiene **$missing** cambios que aquí no están."
+            echo
+            echo "Commit del original: \`$sha\`"
+            echo
+            echo "### Cambios"
+            echo
+            echo '```'
+            git log --oneline --no-decorate HEAD..upstream/main
+            echo '```'
+            echo
+            echo "### Qué hacer"
+            echo
+            echo "Mirarlos antes de tocar nada:"
+            echo
+            echo '```bash'
+            echo "git fetch upstream"
+            echo "git log --oneline HEAD..upstream/main"
+            echo "git show <commit>"
+            echo '```'
+            echo
+            echo "**No hagas un merge sin mirar**: la aplicación se ha reescrito entera, así que"
+            echo "muchos de esos cambios pueden estar ya resueltos por otra vía o chocar de frente."
+            echo "Lo normal es traer a mano lo que aporte algo (por ejemplo, si Streamlabs cambió"
+            echo "un endpoint) y dejar el resto."
+            echo "__BODY__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Avisar con una incidencia
+        if: steps.compare.outputs.missing != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.compare.outputs.sha }}
+          MISSING: ${{ steps.compare.outputs.missing }}
+          BODY: ${{ steps.compare.outputs.body }}
+        run: |
+          set -euo pipefail
+          # Cualquier incidencia (abierta o cerrada) que mencione este commit ya avisó.
+          already="$(gh issue list --state all --search "$SHA" --json title \
+            --jq '[.[] | select(.title | startswith("[upstream]"))] | length')"
+          if [ "$already" != "0" ]; then
+            echo "Ya se avisó del commit $SHA."
+            exit 0
+          fi
+          gh issue create \
+            --title "[upstream] El proyecto original tiene $MISSING cambios nuevos ($SHA)" \
+            --body "$BODY"
