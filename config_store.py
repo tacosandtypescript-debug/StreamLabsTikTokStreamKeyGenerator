@@ -67,6 +67,12 @@ class AppConfig:
     # Last account seen, so the window can show its name and its initial before
     # Streamlabs answers. Not an identifier and not a secret.
     last_username: str = ""
+    # Where the account picture comes from: "" (never decided yet), "auto" (fetched
+    # from the avatar service) or "manual" (the user chose a file, and the service
+    # is then never asked). ``avatar_username`` is the account the automatic one
+    # belongs to, so changing accounts refreshes it.
+    avatar_source: str = ""
+    avatar_username: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +89,8 @@ class AppConfig:
             "window_y": self.window_y,
             "window_maximized": self.window_maximized,
             "last_username": self.last_username,
+            "avatar_source": self.avatar_source,
+            "avatar_username": self.avatar_username,
         }
 
 
@@ -214,6 +222,8 @@ def _parse_config(data: Any) -> ConfigLoadResult:
         window_y=_optional_int_value(data, "window_y"),
         window_maximized=_bool_value(data, "window_maximized", False),
         last_username=_string_value(data, "last_username"),
+        avatar_source=_string_value(data, "avatar_source"),
+        avatar_username=_string_value(data, "avatar_username"),
     )
     return ConfigLoadResult(
         config=config,

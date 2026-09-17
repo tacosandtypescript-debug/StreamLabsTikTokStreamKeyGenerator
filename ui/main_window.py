@@ -102,6 +102,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._validated_at: datetime | None = None
         # Last account name seen, to draw its initial before Streamlabs answers.
         self._last_username = ""
+        # Where the picture comes from and which account it belongs to.
+        self._avatar_source = ""
+        self._avatar_username = ""
         # Whether Streamlabs lets this account pick the adult audience.
         self._audience_controls_available = True
         self._category_id = ""
@@ -324,6 +327,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self._loading_config = False
 
         self._show_username(config.last_username)
+        self._avatar_source = config.avatar_source
+        self._avatar_username = config.avatar_username
         self._apply_avatar_picture()
         self._restore_window_geometry(config)
 
@@ -380,6 +385,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             window_y=geometry.y,
             window_maximized=geometry.maximized,
             last_username=self._last_username,
+            avatar_source=self._avatar_source,
+            avatar_username=self._avatar_username,
         )
 
     def save_config(self, show_message: bool = True) -> bool:
@@ -478,6 +485,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._apply_audience_controls(info)
         self._set_can_go_live(info.can_be_live)
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
+        self._maybe_fetch_avatar(info.username)
         LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
         self._update_controls()
         if self._session_record is not None and not self._session_prompted:
@@ -1037,12 +1045,69 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             label.set_picture(picture)
         self.remove_avatar_btn.setEnabled(picture is not None)
 
-    def choose_avatar(self) -> None:
-        """Let the user pick a picture: there is none to download.
+    def _maybe_fetch_avatar(self, username: str) -> None:
+        """Fetch the account picture once, and only when it makes sense.
 
-        Streamlabs does not publish an avatar for the authorised account and
-        TikTok only serves one to a browser, so the picture has to be the user's.
+        The service allows 25 lookups a day, so the picture is cached and only
+        fetched when the account changes or when there is none. A picture the
+        user chose is never replaced behind their back.
         """
+
+        username = (username or "").strip()
+        if not username or self._avatar_source == "manual":
+            return
+        if (
+            self._avatar_source == "auto"
+            and self._avatar_username == username
+            and avatar_store.has_avatar()
+        ):
+            return
+        self.fetch_account_avatar(username)
+
+    def fetch_account_avatar(self, username: str | None = None, *, announce: bool = False) -> None:
+        """Download the account picture in the background.
+
+        Never on the GUI thread: it is a network request. A failure is cosmetic,
+        so it is logged rather than shown, unless the user asked for it.
+        """
+
+        name = (username if username is not None else self._last_username).strip().lstrip("@")
+        if not name:
+            self._set_status("Valida la cuenta antes de traer su foto")
+            return
+        if announce:
+            self._set_status("Buscando la foto de la cuenta…")
+        LOGGER.info("Fetching the account picture")
+        self._run_worker(
+            lambda: avatar_store.save_remote_avatar(name),
+            lambda path: self._avatar_downloaded(name, path, announce),
+            lambda exc: self._avatar_not_fetched(exc, announce),
+            operation="avatar-download",
+            offer_token_renewal=False,
+        )
+
+    def _avatar_downloaded(self, username: str, path: Path, announce: bool) -> None:
+        self._avatar_source = "auto"
+        self._avatar_username = username
+        self._apply_avatar_picture()
+        self.save_config(False)
+        LOGGER.info("The account picture from %s was stored", avatar_store.AVATAR_SERVICE_NAME)
+        if announce:
+            self._set_status("Foto de la cuenta actualizada")
+
+    def _avatar_not_fetched(self, exc: Exception, announce: bool) -> None:
+        LOGGER.debug("The account picture could not be fetched: %s", type(exc).__name__)
+        if announce:
+            self._set_status("No se pudo traer la foto; se muestra la inicial")
+
+    def use_account_avatar(self) -> None:
+        """Fetch the picture because the user asked for it."""
+
+        self._avatar_source = "auto"
+        self.fetch_account_avatar(announce=True)
+
+    def choose_avatar(self) -> None:
+        """Let the user pick a picture, which the service never replaces."""
 
         selected, _filters = QFileDialog.getOpenFileName(
             self,
@@ -1058,15 +1123,22 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             LOGGER.warning("The chosen picture was rejected: %s", type(exc).__name__)
             QMessageBox.warning(self, "Imagen de la cuenta", str(exc))
             return
+        self._avatar_source = "manual"
+        self._avatar_username = ""
         self._apply_avatar_picture()
-        LOGGER.info("The user changed the account picture")
+        self.save_config(False)
+        LOGGER.info("The user chose the account picture")
         self._set_status("Imagen de la cuenta actualizada")
 
     def remove_avatar(self) -> None:
-        """Forget the chosen picture and go back to the drawn initial."""
+        """Forget the picture and keep the drawn initial instead."""
 
         avatar_store.remove_avatar()
+        # Remembered as a deliberate choice, so it is not fetched again.
+        self._avatar_source = "manual"
+        self._avatar_username = ""
         self._apply_avatar_picture()
+        self.save_config(False)
         self._set_status("Imagen de la cuenta quitada")
 
     def _apply_audience_controls(self, info: AccountInfo) -> None:

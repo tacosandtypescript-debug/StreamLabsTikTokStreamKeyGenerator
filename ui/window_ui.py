@@ -347,7 +347,14 @@ class WindowUiMixin:
         account_layout.addLayout(identity)
 
         picture_row = QHBoxLayout()
-        picture_row.setSpacing(8)
+        picture_row.setSpacing(6)
+        self.use_avatar_btn = QPushButton("Usar la de la cuenta")
+        self.use_avatar_btn.setToolTip(
+            "Descarga la foto del perfil de TikTok a través de unavatar.io y la guarda"
+        )
+        self.use_avatar_btn.clicked.connect(lambda _checked=False: self.use_account_avatar())
+        picture_row.addWidget(self.use_avatar_btn)
+
         self.choose_avatar_btn = QPushButton("Elegir imagen…")
         self.choose_avatar_btn.setToolTip(
             "Usa una imagen tuya como foto de la cuenta; se guarda una copia reducida"
@@ -361,6 +368,13 @@ class WindowUiMixin:
         picture_row.addWidget(self.remove_avatar_btn)
         picture_row.addStretch(1)
         account_layout.addLayout(picture_row)
+
+        credit = QLabel(
+            'Foto de perfil: <a href="https://unavatar.io">unavatar.io</a>'
+        )
+        credit.setObjectName("muted")
+        credit.setOpenExternalLinks(True)
+        account_layout.addWidget(credit)
         layout.addWidget(account_card)
 
         hint = QLabel(

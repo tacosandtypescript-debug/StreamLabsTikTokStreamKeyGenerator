@@ -104,18 +104,22 @@ principal tenga solo lo que se usa antes de cada directo: se entra con el botón
 **Cuenta y token** y se vuelve con **Volver al directo**. La primera vez que abres
 la aplicación, esa pantalla es la que aparece.
 
-### La cuenta y su foto
+### La cuenta, su foto y sus datos
 
-El **círculo con tu inicial** que ves en el banner y en la ficha de cuenta se colorea
-solo, de forma estable, a partir del nombre: dos cuentas nunca se confunden.
+En el banner y en la ficha de cuenta verás la **foto del perfil** de la cuenta. Se
+consigue a través de [unavatar.io](https://unavatar.io), un servicio abierto que agrega
+avatares de muchas redes: Streamlabs no publica el de la cuenta autorizada y TikTok
+solo sirve el suyo a un navegador de verdad, así que esta es la vía que funciona sin
+meter un navegador dentro de la aplicación.
 
-**No se descarga ninguna foto**, y no es por falta de ganas: Streamlabs no publica el
-avatar de la cuenta autorizada (el endpoint solo devuelve el nombre, el estado y las
-opciones de audiencia) y TikTok solo sirve el suyo a un navegador de verdad —a un
-cliente normal le devuelve una página vacía o un 403—. Si quieres una foto, en
-**Cuenta y token → Elegir imagen…** puedes escoger una tuya: se guarda una copia
-reducida a 256 px en la carpeta de configuración, se puede quitar con **Quitar** y no
-sale de tu equipo.
+- La imagen se **guarda en tu equipo** (256 px, en la carpeta de configuración) y solo
+  se consulta al servicio **cuando cambia la cuenta**: el plan gratuito permite 25
+  consultas al día, así que no se pide en cada arranque. Con **Usar la de la cuenta**
+  la fuerzas cuando quieras.
+- También puedes poner **una imagen tuya** con *Elegir imagen…*, y entonces no se
+  vuelve a consultar al servicio. **Quitar** vuelve a la inicial.
+- Si no hay foto, o el servicio no contesta, se dibuja un **círculo con tu inicial**
+  con un color que depende solo del nombre: dos cuentas nunca se confunden.
 
 La casilla **Contenido para adultos** depende de lo que Streamlabs responda para tu
 cuenta: si tu cuenta no puede usarlo, aparece deshabilitada y explicada.
@@ -220,3 +224,5 @@ y `pytest` (261 pruebas, también de la interfaz). Los iconos se regeneran con
 GPL-3.0 — consulta [`LICENSE.txt`](LICENSE.txt). Obra original de
 [Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator); este
 repositorio es una versión derivada, endurecida y traducida.
+
+Las fotos de perfil se obtienen con [unavatar.io](https://unavatar.io).

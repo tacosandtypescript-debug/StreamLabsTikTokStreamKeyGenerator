@@ -81,6 +81,12 @@ def store(tmp_path):
 def app(qtbot, store, backend, monkeypatch):
     FakeClient.instances = []
     monkeypatch.setattr(application, "StreamlabsTikTokClient", FakeClient)
+    # The avatar service allows 25 lookups a day: the suite must never use one.
+    monkeypatch.setattr(
+        application.avatar_store,
+        "save_remote_avatar",
+        lambda *args, **kwargs: application.avatar_store.avatar_path(),
+    )
     # No dialog may block a test.
     monkeypatch.setattr(application.QMessageBox, "exec", lambda self: 0)
     for name in ("information", "warning", "critical", "question"):
@@ -998,6 +1004,113 @@ def test_the_adult_option_is_unticked_when_the_account_loses_it(app):
                                              audience_controls_disabled=True))
 
     assert app.mature_checkbox.isChecked() is False
+
+
+# --------------------------------------------------------------------------- #
+#  La foto de la cuenta                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_the_picture_is_fetched_as_soon_as_the_account_is_known(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+    app.token_entry.setText("token-value")
+
+    app._account_loaded("token-value", AccountInfo("creator", "approved", True))
+
+    assert fetched
+
+
+def test_a_picture_chosen_by_the_user_is_never_replaced(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+    app._avatar_source = "manual"
+
+    app._maybe_fetch_avatar("creator")
+
+    assert fetched == []
+
+
+def test_the_picture_is_not_downloaded_again_for_the_same_account(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    (tmp_path / avatar_store.AVATAR_FILENAME).write_bytes(b"hay imagen")
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+    app._avatar_source = "auto"
+    app._avatar_username = "creator"
+
+    app._maybe_fetch_avatar("creator")
+
+    assert fetched == []
+
+
+def test_changing_account_downloads_the_new_picture(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    (tmp_path / avatar_store.AVATAR_FILENAME).write_bytes(b"hay imagen")
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+    app._avatar_source = "auto"
+    app._avatar_username = "otra-cuenta"
+
+    app._maybe_fetch_avatar("creator")
+
+    assert fetched
+
+
+def test_without_an_account_there_is_nothing_to_fetch(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+    app._avatar_source = "auto"
+
+    app._maybe_fetch_avatar("   ")
+
+    assert fetched == []
+
+
+def test_a_failed_download_keeps_the_initial_and_opens_no_dialog(app, monkeypatch):
+    dialogs = []
+    for name in ("warning", "critical", "information"):
+        monkeypatch.setattr(
+            application.QMessageBox,
+            name,
+            staticmethod(lambda *args, **kwargs: dialogs.append(args)),
+        )
+
+    app._avatar_not_fetched(avatar_store.AvatarError("sin foto"), True)
+
+    assert dialogs == []
+    assert app.avatar.has_picture() is False
+
+
+def test_asking_for_the_picture_marks_it_as_automatic(app, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(app, "fetch_account_avatar", lambda *args, **kwargs: fetched.append(args))
+
+    app.use_account_avatar()
+
+    assert app._avatar_source == "auto"
+    assert fetched
+
+
+def test_a_downloaded_picture_is_applied_and_remembered(app, store):
+    app._avatar_downloaded("creator", store.path, False)
+
+    assert app._avatar_source == "auto"
+    assert app._avatar_username == "creator"
+    saved = read_config_file(store.path)
+    assert saved.config.avatar_source == "auto"
+    assert saved.config.avatar_username == "creator"
+
+
+def test_the_photo_choice_survives_a_restart(app, store, qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    app._avatar_source = "manual"
+    assert app.save_config(False) is True
+
+    second = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(second)
+
+    assert second._avatar_source == "manual"
 
 
 # --------------------------------------------------------------------------- #
