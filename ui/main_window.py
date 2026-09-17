@@ -10,8 +10,16 @@ from typing import Any, Callable
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem, QMainWindow, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QLineEdit,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+)
 
+import avatar as avatar_store
 from config_store import (
     ActiveSession,
     AppConfig,
@@ -92,6 +100,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         # When the account was last confirmed, so the banner can say how old the
         # validation is.
         self._validated_at: datetime | None = None
+        # Last account name seen, to draw its initial before Streamlabs answers.
+        self._last_username = ""
+        # Whether Streamlabs lets this account pick the adult audience.
+        self._audience_controls_available = True
         self._category_id = ""
         self._active_session: StreamSession | None = None
         self._session_record: ActiveSession | None = None
@@ -311,6 +323,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         finally:
             self._loading_config = False
 
+        self._show_username(config.last_username)
+        self._apply_avatar_picture()
         self._restore_window_geometry(config)
 
     def _restore_window_geometry(self, config: AppConfig) -> None:
@@ -365,6 +379,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             window_x=geometry.x,
             window_y=geometry.y,
             window_maximized=geometry.maximized,
+            last_username=self._last_username,
         )
 
     def save_config(self, show_message: bool = True) -> bool:
@@ -459,7 +474,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._validated_token = token
         self._validated_at = datetime.now()
         self._account_info = info
-        self.tiktok_username.setText(info.username)
+        self._show_username(info.username)
+        self._apply_audience_controls(info)
         self._set_can_go_live(info.can_be_live)
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
         LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
@@ -476,7 +492,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._account_info = None
         self._validated_token = None
         self._validated_at = None
-        self.tiktok_username.clear()
+        self._show_username("")
         self._set_can_go_live(None)
         self._set_status(safe_error_message(exc))
         self._update_controls()
@@ -958,7 +974,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         editable = account_can_live and not session_active and not stream_busy
         self.stream_title.setEnabled(editable)
         self.game_category.setEnabled(editable)
-        self.mature_checkbox.setEnabled(editable)
+        self.mature_checkbox.setEnabled(editable and self._audience_controls_available)
         self.go_live_btn.setEnabled(editable and self._can_start_stream())
         self.end_live_btn.setEnabled(session_active and not stream_busy)
         self.refresh_btn.setEnabled(not account_busy and not token_busy)
@@ -1005,6 +1021,72 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
     #  State shown to the user                                            #
     # ------------------------------------------------------------------ #
 
+    def _show_username(self, username: str) -> None:
+        """Show the account name and its initial wherever the account appears."""
+
+        self._last_username = username.strip()
+        self.tiktok_username.setText(self._last_username)
+        for label in (self.avatar, self.avatar_big):
+            label.set_username(self._last_username)
+
+    def _apply_avatar_picture(self) -> None:
+        """Put the chosen picture, if there is one, on every avatar."""
+
+        picture = avatar_store.load_avatar()
+        for label in (self.avatar, self.avatar_big):
+            label.set_picture(picture)
+        self.remove_avatar_btn.setEnabled(picture is not None)
+
+    def choose_avatar(self) -> None:
+        """Let the user pick a picture: there is none to download.
+
+        Streamlabs does not publish an avatar for the authorised account and
+        TikTok only serves one to a browser, so the picture has to be the user's.
+        """
+
+        selected, _filters = QFileDialog.getOpenFileName(
+            self,
+            "Elegir una imagen para la cuenta",
+            "",
+            "Imágenes (*.png *.jpg *.jpeg *.webp *.bmp)",
+        )
+        if not selected:
+            return
+        try:
+            avatar_store.save_avatar(Path(selected))
+        except avatar_store.AvatarError as exc:
+            LOGGER.warning("The chosen picture was rejected: %s", type(exc).__name__)
+            QMessageBox.warning(self, "Imagen de la cuenta", str(exc))
+            return
+        self._apply_avatar_picture()
+        LOGGER.info("The user changed the account picture")
+        self._set_status("Imagen de la cuenta actualizada")
+
+    def remove_avatar(self) -> None:
+        """Forget the chosen picture and go back to the drawn initial."""
+
+        avatar_store.remove_avatar()
+        self._apply_avatar_picture()
+        self._set_status("Imagen de la cuenta quitada")
+
+    def _apply_audience_controls(self, info: AccountInfo) -> None:
+        """Use the audience options Streamlabs reports for this account.
+
+        The label stays in Spanish, but whether the option exists at all is
+        Streamlabs' answer rather than an assumption: an account whose audience
+        controls are disabled must not be offered adult content.
+        """
+
+        self._audience_controls_available = not info.audience_controls_disabled
+        label = info.audience_label(1)
+        if not self._audience_controls_available:
+            self.mature_checkbox.setToolTip("Tu cuenta no puede usar contenido para adultos.")
+            if self.mature_checkbox.isChecked():
+                self.mature_checkbox.setChecked(False)
+            return
+        note = f"Etiqueta de Streamlabs: «{label}»." if label else ""
+        self.mature_checkbox.setToolTip(f"Marca la sesión como contenido para adultos. {note}")
+
     def _set_can_go_live(self, can: bool | None) -> None:
         """Show the live permission as a badge instead of a raw boolean.
 
@@ -1044,6 +1126,21 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             return ""
         return started.astimezone().strftime("%H:%M")
 
+    @staticmethod
+    def _status_date(value: str | None) -> str:
+        """Return a short local date for the approval timestamp, or an empty string."""
+
+        if not value:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            return ""
+        try:
+            return parsed.astimezone().strftime("%d/%m/%Y")
+        except (OverflowError, OSError):  # pragma: no cover - absurd timestamps
+            return ""
+
     def _refresh_banner(self) -> None:
         """Put the state of the application into one sentence."""
 
@@ -1075,6 +1172,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             return
 
         detail = f"@{info.username} · {info.application_status}"
+        approved = self._status_date(info.status_timestamp)
+        if approved:
+            detail += f" · aprobado el {approved}"
         if self._validated_at is not None:
             detail += f" · validado a las {self._validated_at.strftime('%H:%M')}"
         if not info.can_be_live:

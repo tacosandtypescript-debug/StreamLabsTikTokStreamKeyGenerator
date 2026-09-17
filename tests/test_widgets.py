@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractAnimation
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from ui.theme import BANNER_STATES, state_accent
 from ui.widgets import (
     ANIMATION_MS,
     COPIED_FEEDBACK_MS,
+    AvatarLabel,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
@@ -157,6 +159,88 @@ def test_the_copy_field_keeps_the_line_edit_interface(qtbot):
     field.clear()
     assert field.text() == ""
     assert field.is_confirming() is False
+
+
+def test_the_avatar_draws_the_initial_of_the_username(qtbot):
+    label = AvatarLabel()
+    qtbot.addWidget(label)
+
+    label.set_username("@khetzalgg")
+
+    assert label.initial() == "K"
+    assert label.has_picture() is False
+
+
+def test_the_avatar_colour_depends_only_on_the_username(qtbot):
+    first = AvatarLabel()
+    second = AvatarLabel()
+    qtbot.addWidget(first)
+    qtbot.addWidget(second)
+
+    first.set_username("khetzalgg")
+    second.set_username("Khetzalgg")
+
+    assert first.color() == second.color()
+
+
+def test_different_accounts_get_different_colours(qtbot):
+    colours = set()
+    for name in ("uno", "dos", "tres", "cuatro", "cinco"):
+        label = AvatarLabel()
+        qtbot.addWidget(label)
+        label.set_username(name)
+        colours.add(label.color())
+
+    assert len(colours) > 1
+
+
+def test_the_avatar_is_hidden_until_there_is_an_account(qtbot):
+    label = AvatarLabel()
+    qtbot.addWidget(label)
+
+    label.set_username("")
+    assert label.isHidden() is True
+
+    label.set_username("khetzalgg")
+    assert label.isHidden() is False
+
+
+def test_a_picture_replaces_the_initial(qtbot):
+    label = AvatarLabel()
+    qtbot.addWidget(label)
+    label.set_username("khetzalgg")
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(QColor("#00ff00"))
+
+    label.set_picture(pixmap)
+    assert label.has_picture() is True
+
+    label.set_picture(None)
+    assert label.has_picture() is False
+
+
+def test_an_unusable_pixmap_is_ignored(qtbot):
+    label = AvatarLabel()
+    qtbot.addWidget(label)
+    label.set_username("khetzalgg")
+
+    label.set_picture(QPixmap())
+
+    assert label.has_picture() is False
+
+
+def test_the_avatar_paints_with_and_without_a_picture(qtbot):
+    label = AvatarLabel(28)
+    qtbot.addWidget(label)
+    label.set_username("khetzalgg")
+
+    assert label.grab().width() == 28
+
+    pixmap = QPixmap(8, 8)
+    pixmap.fill(QColor("#123456"))
+    label.set_picture(pixmap)
+
+    assert label.grab().width() == 28
 
 
 def test_the_animator_can_be_told_the_natural_height(qtbot):

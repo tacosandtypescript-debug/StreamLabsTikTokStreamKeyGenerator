@@ -7,9 +7,10 @@ avoid every modal dialog and network call, so they stay fast and deterministic.
 import zipfile
 
 import pytest
-from PySide6.QtGui import QCloseEvent, QShortcut
+from PySide6.QtGui import QCloseEvent, QColor, QImage, QShortcut
 from PySide6.QtWidgets import QLabel
 
+import avatar as avatar_store
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
 from streamlabs_client import (
@@ -849,6 +850,154 @@ def test_every_keyboard_mnemonic_is_unique(app):
 
     assert mnemonics
     assert len(set(mnemonics)) == len(mnemonics)
+
+
+# --------------------------------------------------------------------------- #
+#  The account: avatar and the details Streamlabs reports                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_validating_the_account_fills_the_avatar_and_the_audience(app):
+    app.token_entry.setText("token-value")
+    info = AccountInfo("creator", "approved", True, audience_types=((1, "Adult Only"),))
+
+    app._account_loaded("token-value", info)
+
+    assert app.avatar.initial() == "C"
+    assert app.avatar_big.initial() == "C"
+    assert app.avatar.isHidden() is False
+    assert "Adult Only" in app.mature_checkbox.toolTip()
+
+
+def test_the_account_name_is_remembered_between_runs(app, store, qtbot):
+    _validated(app)
+    app._show_username("creator")
+    assert app.save_config(False) is True
+
+    second = StreamApp(config_store=store, token_store=app.token_store)
+    qtbot.addWidget(second)
+
+    assert second.tiktok_username.text() == "creator"
+    assert second.avatar.initial() == "C"
+    assert second.avatar.isHidden() is False
+
+
+def test_a_failed_validation_leaves_no_account_on_screen(app):
+    app.token_entry.setText("token-value")
+    app._show_username("creator")
+
+    app._account_failed("token-value", StreamlabsError("boom", status_code=500), silent=True)
+
+    assert app.avatar.isHidden() is True
+    assert app.avatar_big.isHidden() is True
+    assert app.tiktok_username.text() == ""
+
+
+def _chosen_image(tmp_path, name="elegida.png", size=80):
+    path = tmp_path / name
+    image = QImage(size, size, QImage.Format.Format_RGB32)
+    image.fill(QColor("#00ff00"))
+    assert image.save(str(path), "PNG")
+    return path
+
+
+def test_choosing_a_picture_stores_it_and_shows_it(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    source = _chosen_image(tmp_path)
+    monkeypatch.setattr(
+        application.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (str(source), "")),
+    )
+
+    app.choose_avatar()
+
+    assert avatar_store.has_avatar() is True
+    assert app.avatar.has_picture() is True
+    assert app.avatar_big.has_picture() is True
+    assert app.remove_avatar_btn.isEnabled() is True
+    assert "actualizada" in app.app_status.text()
+
+
+def test_removing_the_picture_goes_back_to_the_initial(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    source = _chosen_image(tmp_path)
+    monkeypatch.setattr(
+        application.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (str(source), "")),
+    )
+    app.choose_avatar()
+
+    app.remove_avatar()
+
+    assert avatar_store.has_avatar() is False
+    assert app.avatar.has_picture() is False
+    assert app.remove_avatar_btn.isEnabled() is False
+    assert "quitada" in app.app_status.text()
+
+
+def test_a_rejected_picture_is_explained_and_not_stored(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    bad = tmp_path / "notas.txt"
+    bad.write_text("no soy una imagen", encoding="utf-8")
+    monkeypatch.setattr(
+        application.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (str(bad), "")),
+    )
+    warnings = []
+    monkeypatch.setattr(
+        application.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+
+    app.choose_avatar()
+
+    assert warnings
+    assert avatar_store.has_avatar() is False
+    assert app.avatar.has_picture() is False
+
+
+def test_cancelling_the_picture_picker_changes_nothing(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_store, "avatar_directory", lambda: tmp_path)
+    monkeypatch.setattr(
+        application.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: ("", "")),
+    )
+
+    app.choose_avatar()
+
+    assert avatar_store.has_avatar() is False
+    assert app.avatar.has_picture() is False
+
+
+def test_adult_content_follows_what_streamlabs_reports(app):
+    info = AccountInfo(
+        "creator",
+        "approved",
+        True,
+        audience_types=((0, "Everyone"),),
+        audience_controls_disabled=True,
+    )
+
+    app._apply_audience_controls(info)
+    app._update_controls()
+
+    assert app._audience_controls_available is False
+    assert app.mature_checkbox.isEnabled() is False
+    assert "no puede usar" in app.mature_checkbox.toolTip()
+
+
+def test_the_adult_option_is_unticked_when_the_account_loses_it(app):
+    app.mature_checkbox.setChecked(True)
+
+    app._apply_audience_controls(AccountInfo("creator", "approved", True,
+                                             audience_controls_disabled=True))
+
+    assert app.mature_checkbox.isChecked() is False
 
 
 # --------------------------------------------------------------------------- #

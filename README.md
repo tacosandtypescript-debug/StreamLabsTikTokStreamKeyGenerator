@@ -15,7 +15,8 @@ a través de Streamlabs.
 |---|---|
 | ![Interfaz en tema claro](docs/captura-clara.png) | ![Interfaz en tema oscuro](docs/captura-oscura.png) |
 
-La pantalla de cuenta, donde se carga el token y se comprueba el permiso de emisión:
+La pantalla de cuenta, donde se carga el token, se comprueba el permiso y se elige la
+foto (en la imagen, con una puesta):
 
 ![Pantalla de cuenta y token](docs/captura-cuenta.png)
 
@@ -102,6 +103,22 @@ El token y el permiso de emisión están en una **segunda pantalla**, para que l
 principal tenga solo lo que se usa antes de cada directo: se entra con el botón
 **Cuenta y token** y se vuelve con **Volver al directo**. La primera vez que abres
 la aplicación, esa pantalla es la que aparece.
+
+### La cuenta y su foto
+
+El **círculo con tu inicial** que ves en el banner y en la ficha de cuenta se colorea
+solo, de forma estable, a partir del nombre: dos cuentas nunca se confunden.
+
+**No se descarga ninguna foto**, y no es por falta de ganas: Streamlabs no publica el
+avatar de la cuenta autorizada (el endpoint solo devuelve el nombre, el estado y las
+opciones de audiencia) y TikTok solo sirve el suyo a un navegador de verdad —a un
+cliente normal le devuelve una página vacía o un 403—. Si quieres una foto, en
+**Cuenta y token → Elegir imagen…** puedes escoger una tuya: se guarda una copia
+reducida a 256 px en la carpeta de configuración, se puede quitar con **Quitar** y no
+sale de tu equipo.
+
+La casilla **Contenido para adultos** depende de lo que Streamlabs responda para tu
+cuenta: si tu cuenta no puede usarlo, aparece deshabilitada y explicada.
 
 ### Atajos de teclado
 

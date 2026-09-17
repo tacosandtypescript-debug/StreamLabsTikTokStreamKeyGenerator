@@ -64,6 +64,9 @@ class AppConfig:
     window_x: int | None = None
     window_y: int | None = None
     window_maximized: bool = False
+    # Last account seen, so the window can show its name and its initial before
+    # Streamlabs answers. Not an identifier and not a secret.
+    last_username: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +82,7 @@ class AppConfig:
             "window_x": self.window_x,
             "window_y": self.window_y,
             "window_maximized": self.window_maximized,
+            "last_username": self.last_username,
         }
 
 
@@ -209,6 +213,7 @@ def _parse_config(data: Any) -> ConfigLoadResult:
         window_x=_optional_int_value(data, "window_x"),
         window_y=_optional_int_value(data, "window_y"),
         window_maximized=_bool_value(data, "window_maximized", False),
+        last_username=_string_value(data, "last_username"),
     )
     return ConfigLoadResult(
         config=config,

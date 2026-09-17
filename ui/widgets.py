@@ -12,14 +12,18 @@ Each one replaces something that was worse inline:
 
 from __future__ import annotations
 
+import zlib
+
 from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
+    QRectF,
     QSize,
     Qt,
     QTimer,
     Signal,
 )
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -40,6 +44,17 @@ from ui.theme import color_tokens, current_theme, state_accent
 # 250 ms reads as lag in a tool used while a stream is about to start.
 ANIMATION_MS = 180
 COPIED_FEEDBACK_MS = 1500
+# Stable colours for the drawn avatar, chosen to be legible on both themes.
+AVATAR_COLORS = (
+    "#2563eb",
+    "#0f766e",
+    "#b45309",
+    "#7c3aed",
+    "#be123c",
+    "#0369a1",
+    "#4d7c0f",
+    "#a21caf",
+)
 # QWidget's "no maximum" value, used when a section must not clip its content.
 UNLIMITED_HEIGHT = 16777215
 
@@ -114,6 +129,11 @@ class StateBanner(QFrame):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(12)
 
+        # The account, then the state: who this is about, and how it is doing.
+        self.avatar = AvatarLabel(26, self)
+        self.avatar.set_username("")
+        layout.addWidget(self.avatar, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self._dot = QFrame(self)
         self._dot.setObjectName("bannerDot")
         self._dot.setFixedSize(12, 12)
@@ -179,6 +199,83 @@ class StateBanner(QFrame):
         self._fade.setStartValue(0.35)
         self._fade.setEndValue(1.0)
         self._fade.start()
+
+
+class AvatarLabel(QWidget):
+    """A round account picture, or the username's initial drawn in its place.
+
+    There is no picture to download (Streamlabs does not publish one and TikTok
+    needs a browser), so the fallback is the same one every mail or chat client
+    uses, and its colour depends only on the username: stable across runs, and
+    different accounts are told apart at a glance.
+    """
+
+    def __init__(self, size: int = 28, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._size = size
+        self._username = ""
+        self._pixmap = None
+        self.setFixedSize(size, size)
+
+    def set_username(self, username: str) -> None:
+        self._username = (username or "").strip()
+        # Nothing to draw before the account is known, and an empty circle looks
+        # like a bug; a chosen picture is worth showing on its own.
+        self.setVisible(bool(self._username) or self.has_picture())
+        self.update()
+
+    def set_picture(self, pixmap) -> None:
+        """Use ``pixmap`` as the picture; ``None`` goes back to the initial."""
+
+        self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self.setVisible(bool(self._username) or self.has_picture())
+        self.update()
+
+    def has_picture(self) -> bool:
+        return self._pixmap is not None
+
+    def initial(self) -> str:
+        return self._username.lstrip("@")[:1].upper()
+
+    def color(self) -> str:
+        """Return the colour of the initial, derived only from the username."""
+
+        if not self._username:
+            return color_tokens(current_theme())["muted"]
+        # crc32, not hash(): hash() is randomised per process, which would change
+        # the colour on every start.
+        index = zlib.crc32(self._username.casefold().encode("utf-8")) % len(AVATAR_COLORS)
+        return AVATAR_COLORS[index]
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(0, 0, self._size, self._size)
+        circle = QPainterPath()
+        circle.addEllipse(rect)
+        painter.setClipPath(circle)
+
+        if self.has_picture():
+            scaled = self._pixmap.scaled(
+                self._size,
+                self._size,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            painter.drawPixmap(0, 0, scaled)
+        else:
+            painter.fillPath(circle, QColor(self.color()))
+            painter.setPen(QColor("#ffffff"))
+            font = QFont(self.font())
+            font.setPixelSize(max(int(self._size * 0.45), 9))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.initial() or "?")
+
+        painter.setClipping(False)
+        painter.setPen(QPen(QColor(color_tokens(current_theme())["border"]), 1))
+        painter.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+        painter.end()
 
 
 class CopyField(QWidget):

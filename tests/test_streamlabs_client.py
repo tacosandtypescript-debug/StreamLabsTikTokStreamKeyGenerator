@@ -389,3 +389,107 @@ def test_category_search_is_retried_too(monkeypatch):
     assert client.search_categories("Fortnite") == [Category("Other", "")]
     assert len(session.calls) == 2
     assert delays == [0.5]
+
+
+# --------------------------------------------------------------------------- #
+#  The extra details of the account response                                   #
+# --------------------------------------------------------------------------- #
+
+FULL_ACCOUNT = {
+    "user": {"username": "creator"},
+    "application_status": {"status": "approved", "timestamp": "2026-01-02T03:04:05Z"},
+    "can_be_live": True,
+    "platform": "tiktok",
+    "audience_controls_info": {
+        "disable": False,
+        "info_type": 0,
+        "types": [{"key": 0, "label": "Everyone"}, {"key": 1, "label": "Adult Only"}],
+    },
+}
+
+
+def test_the_account_response_carries_the_extra_details():
+    client, _ = make_client([FakeResponse(FULL_ACCOUNT)])
+
+    info = client.get_account_info()
+
+    assert info.platform == "tiktok"
+    assert info.status_timestamp == "2026-01-02T03:04:05Z"
+    assert info.audience_types == ((0, "Everyone"), (1, "Adult Only"))
+    assert info.audience_controls_disabled is False
+    assert info.audience_label(1) == "Adult Only"
+
+
+def test_an_unknown_audience_key_has_no_label():
+    client, _ = make_client([FakeResponse(FULL_ACCOUNT)])
+
+    assert client.get_account_info().audience_label(9) == ""
+
+
+def test_a_response_without_the_extra_details_still_validates():
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "creator"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": True,
+                }
+            )
+        ]
+    )
+
+    info = client.get_account_info()
+
+    assert info.platform == ""
+    assert info.status_timestamp is None
+    assert info.audience_types == ()
+    assert info.audience_controls_disabled is False
+
+
+def test_malformed_audience_controls_are_ignored():
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "creator"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": True,
+                    "audience_controls_info": {
+                        "disable": "sí",
+                        "types": [
+                            {"key": "uno", "label": 3},
+                            "basura",
+                            {"key": True, "label": "Adult Only"},
+                            {"key": 1, "label": "Adult Only"},
+                        ],
+                    },
+                }
+            )
+        ]
+    )
+
+    info = client.get_account_info()
+
+    assert info.audience_types == ((1, "Adult Only"),)
+    assert info.audience_controls_disabled is True
+
+
+def test_audience_controls_that_are_not_an_object_are_ignored():
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "creator"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": True,
+                    "audience_controls_info": ["esto no es un objeto"],
+                }
+            )
+        ]
+    )
+
+    info = client.get_account_info()
+
+    assert info.audience_types == ()
+    assert info.audience_controls_disabled is False

@@ -34,6 +34,7 @@ from ui.icons import application_icon, eye_icon
 from ui.theme import color_tokens, current_theme
 from ui.widgets import (
     ANIMATION_MS,
+    AvatarLabel,
     CopyField,
     FadingProgressBar,
     HeightAnimator,
@@ -69,6 +70,8 @@ class WindowUiMixin:
 
         self.banner = StateBanner()
         outer.addWidget(self.banner)
+        # One name for the account avatar, wherever it is shown.
+        self.avatar = self.banner.avatar
 
         self.pages = QStackedWidget()
         outer.addWidget(self.pages)
@@ -320,17 +323,44 @@ class WindowUiMixin:
         layout.addWidget(token_card)
 
         account_card, account_layout = self._card("Permiso de emisión")
+
+        identity = QHBoxLayout()
+        identity.setSpacing(12)
+        self.avatar_big = AvatarLabel(48)
+        self.avatar_big.set_username("")
+        identity.addWidget(self.avatar_big, 0, Qt.AlignmentFlag.AlignTop)
+
+        identity_text = QVBoxLayout()
+        identity_text.setSpacing(4)
         self.tiktok_username = QLineEdit()
         self.tiktok_username.setReadOnly(True)
         self.tiktok_username.setPlaceholderText("Sin validar")
-        account_layout.addWidget(self._field_label("Usuario", self.tiktok_username))
-        account_layout.addWidget(self.tiktok_username)
+        identity_text.addWidget(self._field_label("Usuario", self.tiktok_username))
+        identity_text.addWidget(self.tiktok_username)
 
         self.can_go_live = QLabel("—")
         self.can_go_live.setObjectName("badge")
         self.can_go_live.setProperty("state", "neutral")
-        account_layout.addWidget(self._field_label("Puede emitir"))
-        account_layout.addWidget(self.can_go_live)
+        identity_text.addWidget(self._field_label("Puede emitir"))
+        identity_text.addWidget(self.can_go_live)
+        identity.addLayout(identity_text, 1)
+        account_layout.addLayout(identity)
+
+        picture_row = QHBoxLayout()
+        picture_row.setSpacing(8)
+        self.choose_avatar_btn = QPushButton("Elegir imagen…")
+        self.choose_avatar_btn.setToolTip(
+            "Usa una imagen tuya como foto de la cuenta; se guarda una copia reducida"
+        )
+        self.choose_avatar_btn.clicked.connect(lambda _checked=False: self.choose_avatar())
+        picture_row.addWidget(self.choose_avatar_btn)
+
+        self.remove_avatar_btn = QPushButton("Quitar")
+        self.remove_avatar_btn.setToolTip("Vuelve a mostrar la inicial del usuario")
+        self.remove_avatar_btn.clicked.connect(lambda _checked=False: self.remove_avatar())
+        picture_row.addWidget(self.remove_avatar_btn)
+        picture_row.addStretch(1)
+        account_layout.addLayout(picture_row)
         layout.addWidget(account_card)
 
         hint = QLabel(

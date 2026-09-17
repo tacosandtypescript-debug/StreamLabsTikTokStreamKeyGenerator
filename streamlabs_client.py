@@ -15,6 +15,34 @@ import requests
 LOGGER = logging.getLogger(__name__)
 
 
+def _audience_controls(raw: Any) -> tuple[tuple[tuple[int, str], ...], bool]:
+    """Read the audience options Streamlabs reports for this account.
+
+    ``{"disable": false, "types": [{"key": 0, "label": "Everyone"}, ...]}``.
+    Anything unexpected is ignored rather than raising: these options are extra
+    information, and an account must still validate without them.
+    """
+
+    if not isinstance(raw, dict):
+        return (), False
+
+    disabled = bool(raw.get("disable", False))
+    types: list[tuple[int, str]] = []
+    raw_types = raw.get("types")
+    if isinstance(raw_types, list):
+        for item in raw_types:
+            if not isinstance(item, dict):
+                continue
+            key = item.get("key")
+            label = item.get("label")
+            if isinstance(key, bool) or not isinstance(key, int):
+                continue
+            if not isinstance(label, str) or not label.strip():
+                continue
+            types.append((key, label.strip()))
+    return tuple(types), disabled
+
+
 def _safe_request_path(path: str) -> str:
     """Return a log-safe endpoint path without exposing session identifiers."""
 
@@ -117,9 +145,30 @@ class InvalidResponseError(StreamlabsError):
 
 @dataclass(frozen=True)
 class AccountInfo:
+    """What Streamlabs knows about the authorised account.
+
+    The extra fields come from the same response and are optional on purpose:
+    Streamlabs has changed this payload before, and a missing extra must never
+    break an account that validates.
+    """
+
     username: str
     application_status: str
     can_be_live: bool
+    platform: str = ""
+    status_timestamp: str | None = None
+    # (key, label) of every audience type the account may pick, as Streamlabs
+    # reports them: 0 "Everyone", 1 "Adult Only".
+    audience_types: tuple[tuple[int, str], ...] = ()
+    audience_controls_disabled: bool = False
+
+    def audience_label(self, key: int) -> str:
+        """Return the label Streamlabs gives to an audience key."""
+
+        for candidate, label in self.audience_types:
+            if candidate == key:
+                return label
+        return ""
 
 
 @dataclass(frozen=True)
@@ -397,7 +446,20 @@ class StreamlabsTikTokClient:
         if not isinstance(can_be_live, bool):
             raise EndpointChangedError("El permiso de emisión de Streamlabs no es válido.")
 
-        return AccountInfo(username, status, can_be_live)
+        platform_name = payload.get("platform")
+        timestamp = application_status.get("timestamp")
+        audience_types, controls_disabled = _audience_controls(
+            payload.get("audience_controls_info")
+        )
+        return AccountInfo(
+            username,
+            status,
+            can_be_live,
+            platform=platform_name if isinstance(platform_name, str) else "",
+            status_timestamp=timestamp if isinstance(timestamp, str) else None,
+            audience_types=audience_types,
+            audience_controls_disabled=controls_disabled,
+        )
 
     def get_account_info_payload(self) -> dict[str, Any]:
         """Compatibility helper for callers that need the raw response."""
