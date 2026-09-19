@@ -272,13 +272,14 @@ genera `tools/capture_ui.py`, que construye la ventana de verdad, la deja asenta
 guarda lo que Qt dibuja. Se regeneran con
 
 ```bash
-python tools/capture_ui.py docs/despues
+python tools/capture_ui.py docs/despues 1040
 ```
 
-El segundo argumento es la altura de pantalla que se le supone al escritorio (por
-ejemplo `1040`). Conviene darlo: Qt en modo `offscreen` informa de una pantalla de
-800 px, la ventana nunca se abre más alta que la pantalla, y sin ese dato la captura
-saldría con una barra de desplazamiento que el escritorio real no tiene.
+El primer argumento es la carpeta de salida. El segundo, opcional, es la altura de
+pantalla que se le supone al escritorio. Conviene darlo: Qt en modo `offscreen`
+informa de una pantalla de 800 px, la ventana nunca se abre más alta que la pantalla,
+y sin ese dato la captura saldría con una barra de desplazamiento que el escritorio
+real no tiene.
 
 ### El proyecto original
 
