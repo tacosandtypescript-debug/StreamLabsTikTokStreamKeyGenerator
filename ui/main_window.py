@@ -48,7 +48,6 @@ from ui.geometry import (
     capture_geometry,
     restore_geometry,
     sanitized_geometry,
-    sanitized_position,
 )
 from ui.shortcuts import install_shortcuts
 from ui.update_flow import UpdateFlowMixin
@@ -336,29 +335,18 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         # The account is on screen now, so the labels have their text: measuring again
         # here means the window is already the right size when it appears, instead of
         # growing a moment later.
-        self._apply_fixed_size()
+        self._apply_window_size()
         self._restore_window_geometry(config)
 
     def _restore_window_geometry(self, config: AppConfig) -> None:
-        """Give the window back the position it had last time.
+        """Give the window back the size and position it had last time.
 
-        The window is fixed-size, so only the position is restored: its size
-        comes from its own content.
+        The size is the user's when they have chosen one, and the content's own
+        when they have not: the first measurement runs before this, so the saved
+        size simply replaces it.
         """
 
         screens = available_screens()
-        if self._has_fixed_size():
-            position = sanitized_position(
-                self.width(),
-                self.height(),
-                config.window_x,
-                config.window_y,
-                screens,
-            )
-            if position is not None:
-                self.move(*position)
-            return
-
         geometry = sanitized_geometry(
             config.window_width,
             config.window_height,
@@ -370,12 +358,6 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         if geometry is None:
             return
         restore_geometry(self, geometry)
-
-    def _has_fixed_size(self) -> bool:
-        """Return whether the window cannot be resized at all."""
-
-        minimum = self.minimumSize()
-        return minimum.width() > 0 and minimum == self.maximumSize()
 
     def _config_from_ui(self) -> AppConfig:
         geometry = capture_geometry(self)
@@ -1179,9 +1161,9 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
     def _apply_profile(self, profile: profile_store.Profile | None) -> None:
         self._profile = profile
         self._refresh_profile_card()
-        # The header may be taller than before and the window is fixed, so the
-        # size is measured again instead of clipping the biography.
-        self._apply_fixed_size()
+        # The header may be taller than before, so the minimum size is measured
+        # again instead of clipping the biography.
+        self._apply_window_size()
 
     def choose_avatar(self) -> None:
         """Let the user pick a picture, which the service never replaces."""
@@ -1264,6 +1246,41 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         else:
             summary = "sin token"
         self.account_btn.setText(f"Cuenta y token · {summary}")
+        self._sync_summary_strip()
+
+    def _sync_summary_strip(self) -> None:
+        """Answer, in one line, the three things that gate preparing a stream.
+
+        Each answer is derived from the same state the controls use, so the strip
+        can never disagree with whether the buttons are enabled.
+        """
+
+        info = self._account_info
+        validated = bool(
+            info is not None
+            and self._validated_token
+            and self._validated_token == self.token_entry.text().strip()
+        )
+
+        if validated and info is not None:
+            self.summary.set_value("account", f"@{info.username}", "ok")
+        elif self.token_entry.text().strip():
+            self.summary.set_value("account", "Token sin validar", "warn")
+        else:
+            self.summary.set_value("account", "Sin token", "neutral")
+
+        if validated and info is not None:
+            if info.can_be_live:
+                self.summary.set_value("permission", "Sí", "ok")
+            else:
+                self.summary.set_value("permission", "No", "error")
+        else:
+            self.summary.set_value("permission", "Sin comprobar", "neutral")
+
+        if self._active_session is not None:
+            self.summary.set_value("session", "Directo preparado", "live")
+        else:
+            self.summary.set_value("session", "Sin preparar", "neutral")
 
     @staticmethod
     def _session_start_time(record: ActiveSession) -> str:

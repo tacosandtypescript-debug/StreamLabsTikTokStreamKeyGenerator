@@ -81,18 +81,25 @@ ejecutes**: vuélvelo a descargar.
 5. Escribe el **título** y la **categoría** → **Preparar directo** → **Copiar URL**
    y **Copiar clave**.
 
-La ventana es **pequeña y de tamaño fijo**: mide exactamente lo que mide su
-contenido, no se redimensiona y no tiene zonas vacías. Sigue el **tema del sistema**: si
-Windows está en modo oscuro, la aplicación sale en oscuro. Te dice en todo momento en
-qué punto estás: el **banner de arriba** cambia de color y de texto («Sin token»,
-«Cuenta sin validar», «Listo para preparar el directo», «Directo preparado»), y la
-**barra de abajo** muestra qué está pasando mientras se consulta la cuenta o se
-prepara la sesión.
+La ventana es **redimensionable**, pero no hace falta redimensionarla: se abre
+exactamente del tamaño que pide su contenido y su mínimo es 430 × 360. Tiene
+**formato móvil** — estrecha y alta, 430 × 909 — y todo va **en una sola columna**:
+banner, perfil, tarjetas, botones y resumen, apilados en vertical, que es la forma
+que se coloca bien al lado de OBS. Sigue el **tema del sistema**: si Windows está en
+modo oscuro, la aplicación sale en oscuro. Te dice en todo momento en qué punto
+estás: el **banner de arriba** cambia de color y de texto («Sin token», «Cuenta sin
+validar», «Listo para preparar el directo», «Directo preparado»), la **franja de
+resumen** contesta de un vistazo si hay cuenta, si puede emitir y si ya hay una
+sesión abierta, y la **barra de abajo** muestra qué está pasando mientras se consulta
+la cuenta o se prepara la sesión.
 
 El token y el permiso de emisión están en una **segunda pantalla**, para que la
 principal tenga solo lo que se usa antes de cada directo: se entra con el botón
 **Cuenta y token** y se vuelve con **Volver al directo**. La primera vez que abres
 la aplicación, esa pantalla es la que aparece.
+
+Compara la interfaz anterior con la actual, capturadas de la aplicación real:
+[`docs/interfaz.html`](docs/interfaz.html).
 
 ### La cuenta, su foto y sus datos
 
@@ -226,7 +233,7 @@ python StreamLabsTikTokStreamKeyGenerator.py
 ```
 
 Para desarrollar: `python -m pip install -r requirements-dev.txt`, `ruff check .`
-y `pytest` (261 pruebas, también de la interfaz). Los iconos se regeneran con
+y `pytest` (441 pruebas, también de la interfaz). Los iconos se regeneran con
 `node tools/make_icons.mjs` y los manifiestos de winget con
 `python tools/make_winget_manifest.py`.
 
@@ -250,10 +257,28 @@ y `pytest` (261 pruebas, también de la interfaz). Los iconos se regeneran con
 
 GPL-3.0 — consulta [`LICENSE.txt`](LICENSE.txt). Obra original de
 [Loukious](https://github.com/Loukious/StreamLabsTikTokStreamKeyGenerator); este
-repositorio es una versión derivada, endurecida y traducida.
+repositorio es una versión derivada, endurecida y traducida. La interfaz —formato
+móvil en una columna, la paleta de TikTok, la cabecera del perfil y los iconos
+dibujados— es trabajo derivado de esta misma versión, y sigue por tanto bajo la
+misma licencia y con los mismos autores acreditados.
 
 Las fotos de perfil se obtienen con [unavatar.io](https://unavatar.io) y los datos
 públicos del perfil, con [microlink.io](https://microlink.io).
+
+### Cómo se ve la interfaz
+
+Las capturas de [`docs/interfaz.html`](docs/interfaz.html) no son maquetas: las
+genera `tools/capture_ui.py`, que construye la ventana de verdad, la deja asentar y
+guarda lo que Qt dibuja. Se regeneran con
+
+```bash
+python tools/capture_ui.py docs/despues
+```
+
+El segundo argumento es la altura de pantalla que se le supone al escritorio (por
+ejemplo `1040`). Conviene darlo: Qt en modo `offscreen` informa de una pantalla de
+800 px, la ventana nunca se abre más alta que la pantalla, y sin ese dato la captura
+saldría con una barra de desplazamiento que el escritorio real no tiene.
 
 ### El proyecto original
 

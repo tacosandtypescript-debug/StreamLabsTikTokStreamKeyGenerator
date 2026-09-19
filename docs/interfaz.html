@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Interfaz — antes y después</title>
+<style>
+  :root {
+    --bg: #f1f1f2;
+    --card: #ffffff;
+    --border: #e3e3e5;
+    --text: #161823;
+    --muted: #6b6b76;
+    --cyan: #25f4ee;
+    --rose: #fe2c55;
+    --link: #0f8b8d;
+    --ok: #12854a;
+    --black: #010101;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 34px 24px 70px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  header { max-width: 1240px; margin: 0 auto 30px; }
+  h1 { font-size: 27px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0; max-width: 72ch; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .badge {
+    padding: 5px 12px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 600;
+  }
+  .badge.ok { background: #e6fbfa; color: #0d7a7c; border: 1px solid #a8f0ec; }
+  .badge.rose { background: #ffe9ee; color: #c81e42; border: 1px solid #ffc2ce; }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  h2 {
+    font-size: 18px; margin: 40px 0 14px;
+    padding-bottom: 9px; border-bottom: 1px solid var(--border);
+  }
+  .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    align-items: start; max-width: 1040px;
+  }
+  @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+  figure {
+    margin: 0; background: var(--card);
+    border: 1px solid var(--border); border-radius: 14px;
+    overflow: hidden;
+  }
+  figure.after { border-color: #7fe9e4; box-shadow: 0 0 0 3px #d6fbf9; }
+  figcaption {
+    padding: 11px 15px; font-size: 13px; font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 10px;
+  }
+  figcaption span { color: var(--muted); font-weight: 400; }
+  figure img { display: block; width: 100%; height: auto; background: var(--bg); }
+  .notes { display: grid; gap: 12px; margin-top: 8px; }
+  .note {
+    padding: 14px 17px;
+    background: var(--card); border: 1px solid var(--border);
+    border-left: 4px solid var(--cyan); border-radius: 12px;
+    font-size: 14px;
+  }
+  .note strong { display: block; margin-bottom: 3px; }
+  .note p { margin: 0; color: var(--muted); }
+  .note.rose { border-left-color: var(--rose); }
+  code {
+    background: #ececee; padding: 1px 5px; border-radius: 4px;
+    font: 12.5px/1.4 "Cascadia Mono", Consolas, monospace; color: #33333d;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Generador de clave de TikTok Live — la interfaz, antes y después</h1>
+  <p class="sub">
+    Capturas de la aplicación real, dibujadas por Qt con las fuentes del sistema.
+    No son maquetas: es el mismo código que se ejecuta al abrir el programa.
+  </p>
+  <div class="badges">
+    <span class="badge ok">441 pruebas en verde · 0 avisos del linter</span>
+    <span class="badge rose">Formato móvil 430 × 909</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>Pantalla del directo — tema oscuro (la paleta de TikTok)</h2>
+  <div class="pair">
+    <figure>
+      <figcaption>Antes <span>480 × 712 · cajas azules · tamaño fijo</span></figcaption>
+      <img src="antes/directo-dark.png" alt="Pantalla del directo, antes, en tema oscuro">
+    </figure>
+    <figure class="after">
+      <figcaption>Después <span>430 × 909 · negro, cian y rosa</span></figcaption>
+      <img src="despues/directo-dark.png" alt="Pantalla del directo, después, en tema oscuro">
+    </figure>
+  </div>
+
+  <h2>Pantalla del directo — tema claro</h2>
+  <div class="pair">
+    <figure>
+      <figcaption>Antes <span>480 × 712</span></figcaption>
+      <img src="antes/directo-light.png" alt="Pantalla del directo, antes, en tema claro">
+    </figure>
+    <figure class="after">
+      <figcaption>Después <span>430 × 909</span></figcaption>
+      <img src="despues/directo-light.png" alt="Pantalla del directo, después, en tema claro">
+    </figure>
+  </div>
+
+  <h2>Cuenta y token — tema oscuro</h2>
+  <div class="pair">
+    <figure>
+      <figcaption>Antes <span>480 × 712</span></figcaption>
+      <img src="antes/cuenta-dark.png" alt="Pantalla de cuenta, antes, en tema oscuro">
+    </figure>
+    <figure class="after">
+      <figcaption>Después <span>430 × 909</span></figcaption>
+      <img src="despues/cuenta-dark.png" alt="Pantalla de cuenta, después, en tema oscuro">
+    </figure>
+  </div>
+
+  <h2>Cuenta y token — tema claro</h2>
+  <div class="pair">
+    <figure>
+      <figcaption>Antes <span>480 × 712</span></figcaption>
+      <img src="antes/cuenta-light.png" alt="Pantalla de cuenta, antes, en tema claro">
+    </figure>
+    <figure class="after">
+      <figcaption>Después <span>430 × 909</span></figcaption>
+      <img src="despues/cuenta-light.png" alt="Pantalla de cuenta, después, en tema claro">
+    </figure>
+  </div>
+
+  <h2>Qué cambió</h2>
+  <div class="notes">
+    <div class="note">
+      <strong>Formato móvil, en una sola columna</strong>
+      <p>
+        La ventana es estrecha y alta — 430 × 909, proporción 1:2,1, como un teléfono —
+        y todo va apilado en vertical: banner, perfil, tarjetas, botones y resumen.
+        Sigue siendo redimensionable, con un mínimo de 430 × 360.
+      </p>
+    </div>
+    <div class="note">
+      <strong>La paleta de TikTok</strong>
+      <p>
+        Cian <code>#25f4ee</code> y rosa <code>#fe2c55</code> sobre el negro
+        <code>#010101</code>. El cian llena el botón principal y el anillo de la foto;
+        el rosa queda para <em>Finalizar directo</em>, la única acción que tira trabajo
+        a la basura. Como el blanco sobre ese cian no se lee, los botones llevan texto
+        negro y los enlaces un cian oscurecido.
+      </p>
+    </div>
+    <div class="note">
+      <strong>La cabecera del perfil, como la de verdad</strong>
+      <p>
+        Nombre grande y en negrita, el <code>@usuario</code> debajo, y las cifras en
+        columnas con el rótulo pequeño debajo del número — Seguidores, Me gusta — tal
+        como las dibuja el perfil. La foto lleva el halo desplazado cian y rosa.
+      </p>
+    </div>
+    <div class="note rose">
+      <strong>Los cuadros de alrededor, pulidos</strong>
+      <p>
+        Cada tarjeta es ahora una sección con su título en pequeño y una línea fina
+        debajo, no una caja con una palabra suelta arriba. En oscuro las tarjetas son
+        apenas un punto más claras que el fondo y el borde es un susurro, para que se
+        lean como secciones y no como un formulario. Los campos quedan un escalón por
+        encima, porque un campo que no se ve no se encuentra. El foco ya no engorda el
+        borde —eso hacía saltar el campo un píxel al entrar— sino que cambia de color.
+      </p>
+    </div>
+    <div class="note">
+      <strong>Botones y textos</strong>
+      <p>
+        Todos los iconos los dibuja la aplicación (nada de emoji ni de fuentes
+        opcionales, que era el fallo que documenta el repo). Como en un ancho de
+        teléfono tres botones no caben en una fila, <em>Preparar directo</em> ocupa el
+        ancho completo y debajo van <em>Finalizar directo</em> y
+        <em>Guardar ajustes</em>.
+      </p>
+    </div>
+    <div class="note">
+      <strong>Sección nueva</strong>
+      <p>
+        La franja <em>Cuenta · Puede emitir · Sesión</em> contesta en la pantalla
+        principal las tres preguntas que antes obligaban a entrar en «Cuenta y token».
+      </p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

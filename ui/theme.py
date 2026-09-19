@@ -18,44 +18,75 @@ THEME_ENV_VAR = "STREAMLABS_KEYGEN_THEME"
 LIGHT = "light"
 DARK = "dark"
 
+# The network's own colours, by name, so the table below says what it is doing.
+TIKTOK_CYAN = "#25f4ee"
+TIKTOK_ROSE = "#fe2c55"
+TIKTOK_BLACK = "#010101"
+TIKTOK_WHITE = "#ffffff"
+
 _TOKENS: dict[str, dict[str, str]] = {
     LIGHT: {
-        "bg": "#f2f4f7",
+        "bg": "#f1f1f2",
         "card": "#ffffff",
-        "border": "#dde3ea",
-        "text": "#1b2430",
-        "muted": "#63707f",
-        "disabled": "#a9b3bf",
-        "field": "#ffffff",
-        "fieldBorder": "#c6d0da",
-        "primary": "#2563eb",
-        "primaryHover": "#1d4ed8",
-        "primaryText": "#ffffff",
-        "neutral": "#8794a3",
+        "border": "#e3e3e5",
+        "divider": "#e8e8ea",
+        "text": "#161823",
+        "muted": "#6b6b76",
+        "disabled": "#a6a6b0",
+        "field": "#f8f8f9",
+        "fieldBorder": "#d4d4d9",
+        # The signature cyan cannot carry white text and looks washed out with
+        # dark text on a white page, so it fills the button (with the black the
+        # network also labels it with) while a readable teal draws links, focus
+        # rings and selection.
+        "primary": TIKTOK_CYAN,
+        "primaryHover": "#0fd9d2",
+        "primaryText": TIKTOK_BLACK,
+        "link": "#0f8b8d",
+        "linkHover": "#0b6e70",
+        # The other signature colour, kept for the one action that throws work
+        # away: ending the stream.
+        "danger": TIKTOK_ROSE,
+        "dangerHover": "#e61f47",
+        "dangerText": TIKTOK_WHITE,
+        "neutral": "#8a8a95",
         "ok": "#12854a",
-        "warn": "#a16207",
-        "error": "#c0392b",
-        # A prepared stream is an active state, not a problem: red stays for
-        # errors only, which is why this one is the accent blue.
-        "live": "#2563eb",
+        "warn": "#b06a00",
+        "error": "#e0245e",
+        # A prepared stream is an active state, not a problem, so it stays green
+        # while red is kept for errors — a brighter green than "ok", because a
+        # running session should read as more alive than a passed check.
+        "live": "#00b85c",
     },
     DARK: {
-        "bg": "#141b24",
-        "card": "#1b2430",
-        "border": "#2b3746",
-        "text": "#e8eef5",
-        "muted": "#93a2b3",
-        "disabled": "#6b7a8c",
-        "field": "#111823",
-        "fieldBorder": "#33415a",
-        "primary": "#3b82f6",
-        "primaryHover": "#2f74e0",
-        "primaryText": "#ffffff",
-        "neutral": "#7c8b9c",
-        "ok": "#34d399",
-        "warn": "#fbbf24",
-        "error": "#f87171",
-        "live": "#3b82f6",
+        # The network's near-black. The cards are a hair lighter than the page and
+        # carry only a whisper of a border: on black, an outlined box reads as a
+        # form to fill in, while a barely-raised panel reads as a section — which is
+        # what the profile does, and what these are.
+        "bg": TIKTOK_BLACK,
+        "card": "#0f0f0f",
+        "border": "#222222",
+        "divider": "#262626",
+        "text": "#f1f1f2",
+        "muted": "#9a9aa5",
+        "disabled": "#6b6b76",
+        # Fields sit a step further up again, because a field that cannot be seen
+        # cannot be found: here the edge is what says "type here".
+        "field": "#171717",
+        "fieldBorder": "#333333",
+        "primary": TIKTOK_CYAN,
+        "primaryHover": "#5ff8f2",
+        "primaryText": TIKTOK_BLACK,
+        "link": TIKTOK_CYAN,
+        "linkHover": "#5ff8f2",
+        "danger": TIKTOK_ROSE,
+        "dangerHover": "#ff4d6d",
+        "dangerText": TIKTOK_WHITE,
+        "neutral": "#8a8a95",
+        "ok": "#25d366",
+        "warn": "#ffc93c",
+        "error": "#ff5c7a",
+        "live": "#00f2a0",
     },
 }
 
@@ -213,10 +244,13 @@ def stylesheet(theme: str) -> str:
     QScrollBar::handle:vertical {{ background: {t["border"]}; border-radius: 5px; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 
+    /* In the dark theme the cards have no fill of their own: the profile is drawn
+       edge to edge on black, and the surface comes from the fields and the
+       hairline dividers instead of from a stack of outlined boxes. */
     QFrame#card, QFrame#banner {{
         background: {t["card"]};
         border: 1px solid {t["border"]};
-        border-radius: 10px;
+        border-radius: 12px;
     }}
     QFrame#banner {{ border-left: 4px solid {t["neutral"]}; }}
     QFrame#banner[state="ok"] {{ border-left-color: {t["ok"]}; }}
@@ -225,11 +259,47 @@ def stylesheet(theme: str) -> str:
     QFrame#banner[state="live"] {{ border-left-color: {t["live"]}; }}
 
     QLabel#bannerTitle {{ font-size: 15px; font-weight: 600; }}
-    QLabel#profileName {{ font-size: 17px; font-weight: 600; }}
+    /* The profile header, at the size the network sets its own name: the handle is
+       the identity, so it is the largest thing on the page. */
+    QLabel#profileName {{ font-size: 22px; font-weight: 700; }}
     QLabel#profileStats {{ color: {t["muted"]}; }}
     QLabel#bannerDetail, QLabel#muted, QLabel#cardSummary {{ color: {t["muted"]}; }}
-    QLabel#cardTitle {{ color: {t["muted"]}; font-weight: 600; }}
+    /* The card heading is a line of small text with a hairline under it, so a card
+       is read as a titled section instead of as a box that happens to have a word
+       at the top. */
+    QLabel#cardTitle {{
+        color: {t["muted"]};
+        font-weight: 700;
+        font-size: 12px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid {t["divider"]};
+    }}
     QLabel#fieldLabel {{ color: {t["muted"]}; }}
+
+    /* The three numbers under the name: a large figure with a small caption under
+       it, which is how the profile itself counts followers, likes and videos. */
+    QLabel#statValue {{ font-size: 17px; font-weight: 700; }}
+    QLabel#statLabel {{ color: {t["muted"]}; font-size: 12px; }}
+    QFrame#statDivider {{ background: {t["divider"]}; border: none; }}
+
+    /* The summary strip: small capitals above the value, separated by hairlines
+       instead of being boxed, so it reads as one row and not three cards. */
+    QFrame#summaryStrip {{
+        background: {t["card"]};
+        border: 1px solid {t["border"]};
+        border-radius: 12px;
+    }}
+    QFrame#summaryDivider {{ background: {t["border"]}; border: none; }}
+    QLabel#summaryKey {{
+        color: {t["muted"]};
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QLabel#summaryValue {{ font-size: 14px; font-weight: 600; }}
+    QLabel#summaryValue[state="ok"] {{ color: {t["ok"]}; }}
+    QLabel#summaryValue[state="warn"] {{ color: {t["warn"]}; }}
+    QLabel#summaryValue[state="error"] {{ color: {t["error"]}; }}
+    QLabel#summaryValue[state="live"] {{ color: {t["live"]}; }}
 
     QLabel#badge {{ color: {t["muted"]}; font-weight: 600; }}
     QLabel#badge[state="ok"] {{ color: {t["ok"]}; }}
@@ -239,21 +309,31 @@ def stylesheet(theme: str) -> str:
     QLineEdit {{
         background: {t["field"]};
         border: 1px solid {t["fieldBorder"]};
-        border-radius: 6px;
-        padding: 6px 8px;
-        selection-background-color: {t["primary"]};
+        border-radius: 8px;
+        padding: 8px 10px;
+        selection-background-color: {t["link"]};
+        selection-color: {t["primaryText"]};
     }}
-    QLineEdit:focus {{ border: 1px solid {t["primary"]}; }}
+    QLineEdit:hover {{ border-color: {t["muted"]}; }}
+    /* The focus ring keeps the border the same width as the resting state, so the
+       field does not jump a pixel every time the caret enters it. It is told apart
+       by colour and by a brighter fill instead. */
+    QLineEdit:focus {{
+        border: 1px solid {t["link"]};
+        background: {t["card"]};
+    }}
     QLineEdit[readOnly="true"] {{ background: {t["card"]}; }}
+    QLineEdit[readOnly="true"]:hover {{ border-color: {t["fieldBorder"]}; }}
     QLineEdit:disabled {{ color: {t["disabled"]}; background: {t["bg"]}; }}
 
     QPushButton {{
         background: {t["card"]};
         border: 1px solid {t["fieldBorder"]};
-        border-radius: 6px;
-        padding: 7px 14px;
+        border-radius: 8px;
+        padding: 8px 15px;
+        font-weight: 500;
     }}
-    QPushButton:hover {{ border-color: {t["primary"]}; }}
+    QPushButton:hover {{ border-color: {t["link"]}; color: {t["link"]}; }}
     QPushButton:pressed {{ background: {t["bg"]}; }}
     QPushButton:disabled {{ color: {t["disabled"]}; border-color: {t["border"]}; }}
 
@@ -261,11 +341,35 @@ def stylesheet(theme: str) -> str:
         background: {t["primary"]};
         border: 1px solid {t["primary"]};
         color: {t["primaryText"]};
-        font-weight: 600;
-        padding: 9px 22px;
+        font-weight: 700;
+        padding: 10px 24px;
     }}
-    QPushButton#primary:hover {{ background: {t["primaryHover"]}; }}
+    QPushButton#primary:hover {{
+        background: {t["primaryHover"]};
+        border-color: {t["primaryHover"]};
+        color: {t["primaryText"]};
+    }}
+    QPushButton#primary:pressed {{ background: {t["primary"]}; }}
     QPushButton#primary:disabled {{
+        background: {t["bg"]};
+        border-color: {t["border"]};
+        color: {t["disabled"]};
+    }}
+
+    /* Ending a stream throws work away, so it carries the other signature
+       colour instead of looking like every other button. */
+    QPushButton#danger {{
+        background: {t["card"]};
+        border: 1px solid {t["danger"]};
+        color: {t["danger"]};
+        font-weight: 600;
+    }}
+    QPushButton#danger:hover {{
+        background: {t["danger"]};
+        border-color: {t["danger"]};
+        color: {t["dangerText"]};
+    }}
+    QPushButton#danger:disabled {{
         background: {t["bg"]};
         border-color: {t["border"]};
         color: {t["disabled"]};
@@ -274,11 +378,12 @@ def stylesheet(theme: str) -> str:
     QPushButton#link {{
         background: transparent;
         border: none;
-        color: {t["primary"]};
+        color: {t["link"]};
         text-align: left;
-        padding: 4px 2px;
+        padding: 6px 2px;
+        font-weight: 600;
     }}
-    QPushButton#link:hover {{ color: {t["primaryHover"]}; }}
+    QPushButton#link:hover {{ color: {t["linkHover"]}; }}
     QPushButton#link:disabled {{ color: {t["disabled"]}; }}
 
     QToolButton {{ border: none; background: transparent; padding: 4px; border-radius: 6px; }}
@@ -294,7 +399,7 @@ def stylesheet(theme: str) -> str:
     QStatusBar::item {{ border: none; }}
     QMenu {{ background: {t["card"]}; border: 1px solid {t["border"]}; padding: 4px; }}
     QMenu::item {{ padding: 6px 18px; border-radius: 4px; }}
-    QMenu::item:selected {{ background: {t["primary"]}; color: {t["primaryText"]}; }}
+    QMenu::item:selected {{ background: {t["link"]}; color: {t["primaryText"]}; }}
     QProgressBar {{ background: {t["bg"]}; border: 1px solid {t["border"]}; border-radius: 4px; }}
     QProgressBar::chunk {{ background: {t["primary"]}; border-radius: 4px; }}
     QCheckBox {{ spacing: 8px; }}
@@ -305,10 +410,10 @@ def stylesheet(theme: str) -> str:
         border-radius: 4px;
         background: {t["field"]};
     }}
-    QCheckBox::indicator:hover {{ border-color: {t["primary"]}; }}
+    QCheckBox::indicator:hover {{ border-color: {t["link"]}; }}
     QCheckBox::indicator:checked {{
         background: {t["primary"]};
-        border-color: {t["primary"]};
+        border-color: {t["link"]};
     }}
     QCheckBox::indicator:disabled {{ border-color: {t["border"]}; background: {t["bg"]}; }}
     QMessageBox {{ background: {t["card"]}; }}

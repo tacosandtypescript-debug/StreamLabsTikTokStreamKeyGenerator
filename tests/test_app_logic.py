@@ -803,11 +803,30 @@ def test_both_pages_can_be_reached(app):
     assert app.current_page() == PAGE_STREAM
 
 
-def test_the_window_is_small_and_cannot_be_resized(app):
-    assert app.minimumSize() == app.maximumSize()
-    # Small enough to sit next to OBS on any screen.
-    assert 320 <= app.width() <= 760
-    assert 320 <= app.height() <= 760
+def test_the_window_opens_at_its_content_size_but_can_be_resized(app):
+    # Resizable, so a long biography or a narrow screen is something the user can
+    # do something about, but it still opens exactly as big as its content.
+    assert app.minimumSize().width() < app.maximumSize().width()
+    assert app.minimumSize().height() < app.maximumSize().height()
+    # Phone-shaped: narrow and tall, so it can sit beside OBS.
+    assert app.width() >= 430
+    assert app.height() > app.width()
+    # And never narrower than the fields need to stay readable.
+    assert app.minimumWidth() >= 430
+
+
+def test_a_window_the_user_sized_is_not_resized_back(app, qtbot, monkeypatch):
+    """Measuring again must move the minimum, never the size on screen."""
+
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    app.show()
+    qtbot.wait(80)
+    chosen = (app.width() + 120, app.height() + 90)
+
+    app.resize(*chosen)
+    app._apply_window_size()
+
+    assert (app.width(), app.height()) == chosen
 
 
 # --------------------------------------------------------------------------- #
@@ -1158,7 +1177,7 @@ def test_the_public_numbers_come_from_the_cache_when_it_is_fresh(app, monkeypatc
     app._load_profile("creator")
 
     assert fetched == []
-    assert app.profile_card.numbers_text() == "123.5K me gusta · 1702 seguidores"
+    assert app.profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
     assert app.profile_card.bio_text() == "Creador de Fortnite"
 
 
@@ -1183,7 +1202,7 @@ def test_without_an_account_there_is_nothing_to_read(app, monkeypatch):
 def test_a_fetched_profile_fills_the_card_and_is_cached(app):
     app._profile_fetched(_fresh_profile(followers="1702", likes="123.5K"), False)
 
-    assert app.profile_card.numbers_text() == "123.5K me gusta · 1702 seguidores"
+    assert app.profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
     cached = profile_store.load_cached_profile("creator")
     assert cached is not None
     assert cached.followers == "1702"
@@ -1220,7 +1239,7 @@ def test_both_pages_show_the_same_header(app):
 
     for card in (app.profile_card, app.account_profile_card):
         assert card.name_label.text() == "@creator"
-        assert card.numbers_text() == "1K me gusta · 1702 seguidores"
+        assert card.numbers_text() == "1702 seguidores · 1K me gusta"
 
 
 def test_the_header_is_on_the_main_screen(app):
@@ -1251,18 +1270,24 @@ def test_a_tall_window_stops_at_the_screen_and_scrolls(app, qtbot, monkeypatch):
     # simply hung off the bottom of the screen and nothing could be done about it.
     monkeypatch.setattr(app, "available_height", lambda: 400)
 
-    app._apply_fixed_size()
+    app._apply_window_size()
+    # The minimum is a fixed floor, not the measured content, so a short screen can
+    # always be answered by shrinking the window rather than by hanging off the edge.
+    assert app.minimumHeight() <= 380
+    # Short of room, the pages scroll instead of the cards being squeezed into one
+    # another: the content is taller than the viewport it was given.
+    app.setMaximumHeight(380)
     app.show()
     qtbot.waitUntil(lambda: app.scroll.verticalScrollBar().maximum() > 0, timeout=3000)
 
     assert app.height() == 380
-    assert app.pages.content_height() > app.scroll.viewport().height()
+    assert app.pages.height() > app.scroll.viewport().height()
 
 
 def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
     monkeypatch.setattr(app, "available_height", lambda: 2000)
 
-    app._apply_fixed_size()
+    app._apply_window_size()
     app.show()
     qtbot.wait(150)
 
@@ -1272,11 +1297,11 @@ def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
 
 def test_the_scrollbar_does_not_hide_anything(app, monkeypatch):
     monkeypatch.setattr(app, "available_height", lambda: 2000)
-    app._apply_fixed_size()
+    app._apply_window_size()
     ancho_con_espacio = app.width()
 
     monkeypatch.setattr(app, "available_height", lambda: 400)
-    app._apply_fixed_size()
+    app._apply_window_size()
 
     # The bar takes width from the viewport, so the window gets it back.
     assert app.width() > ancho_con_espacio
@@ -1285,10 +1310,49 @@ def test_the_scrollbar_does_not_hide_anything(app, monkeypatch):
 def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):
     monkeypatch.setattr(app, "available_height", lambda: None)
 
-    app._apply_fixed_size()
+    app._apply_window_size()
 
     assert app.height() > 380
     assert app.scroll.verticalScrollBar().maximum() == 0
+
+
+# --------------------------------------------------------------------------- #
+#  El resumen del directo                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_the_summary_answers_the_three_questions_that_gate_a_stream(app):
+    # Before anything is loaded there is no account and nothing to prepare.
+    app._account_info = None
+    app._active_session = None
+    app._validated_token = None
+    app.token_entry.setText("")
+    app._update_controls()
+
+    assert app.summary.value("account") == "Sin token"
+    assert app.summary.value("permission") == "Sin comprobar"
+    assert app.summary.value("session") == "Sin preparar"
+
+
+def test_the_summary_follows_the_validated_account_and_the_session(app):
+    app.token_entry.setText("token-abc")
+    app._validated_token = "token-abc"
+    app._account_info = AccountInfo("creator", "approved", True)
+    app._active_session = StreamSession("s1", "rtmp://server", "KEY")
+    app._update_controls()
+
+    assert app.summary.value("account") == "@creator"
+    assert app.summary.value("permission") == "Sí"
+    assert app.summary.value("session") == "Directo preparado"
+
+
+def test_an_account_that_may_not_broadcast_says_so(app):
+    app.token_entry.setText("token-abc")
+    app._validated_token = "token-abc"
+    app._account_info = AccountInfo("creator", "approved", False)
+    app._update_controls()
+
+    assert app.summary.value("permission") == "No"
 
 
 # --------------------------------------------------------------------------- #

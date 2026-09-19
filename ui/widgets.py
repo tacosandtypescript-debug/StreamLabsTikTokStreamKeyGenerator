@@ -13,6 +13,7 @@ Each one replaces something that was worse inline:
 from __future__ import annotations
 
 import zlib
+from typing import Sequence
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -55,19 +56,28 @@ from ui.theme import color_tokens, current_theme, state_accent
 # 250 ms reads as lag in a tool used while a stream is about to start.
 ANIMATION_MS = 180
 COPIED_FEEDBACK_MS = 1500
-# Stable colours for the drawn avatar, chosen to be legible on both themes.
+# Stable colours for the drawn avatar, chosen to be legible on both themes and to
+# sit alongside the two signature colours without clashing with them.
 AVATAR_COLORS = (
-    "#2563eb",
-    "#0f766e",
-    "#b45309",
+    "#0f8b8d",
     "#7c3aed",
-    "#be123c",
+    "#fe2c55",
+    "#2563eb",
+    "#b45309",
     "#0369a1",
     "#4d7c0f",
     "#a21caf",
 )
-# The ring around the account picture echoes the two accent colours of the icon.
+# The ring around the account picture, and the offset glow drawn behind it, are the
+# two signature colours of the icon: the cyan and the rose, one nudged each way.
 AVATAR_RING_COLORS = ("#25f4ee", "#fe2c55")
+# How far each glow copy is offset, as a fraction of the picture's size.
+AVATAR_GLOW_OFFSET = 0.055
+# The ring thickness, in pixels, for a picture of any size.
+AVATAR_RING_WIDTH = 3
+# Room left around the profile picture so the offset glow behind it is not clipped
+# by the layout that holds it.
+AVATAR_GLOW_MARGIN = 6
 # QWidget's "no maximum" value, used when a section must not clip its content.
 UNLIMITED_HEIGHT = 16777215
 
@@ -271,6 +281,10 @@ class AvatarLabel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(0, 0, self._size, self._size)
+
+        if self._ring:
+            self._paint_glow(painter, rect)
+
         circle = QPainterPath()
         circle.addEllipse(rect)
         painter.setClipPath(circle)
@@ -302,14 +316,43 @@ class AvatarLabel(QWidget):
             gradient.setColorAt(0.5, QColor(AVATAR_RING_COLORS[0]))
             gradient.setColorAt(0.75, QColor(AVATAR_RING_COLORS[1]))
             gradient.setColorAt(1.0, QColor(AVATAR_RING_COLORS[0]))
-            pen = QPen(QBrush(gradient), 3)
+            pen = QPen(QBrush(gradient), AVATAR_RING_WIDTH)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             painter.setPen(pen)
-            painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+            inset = AVATAR_RING_WIDTH / 2
+            painter.drawEllipse(rect.adjusted(inset, inset, -inset, -inset))
         else:
             painter.setPen(QPen(QColor(color_tokens(current_theme())["border"]), 1))
             painter.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
         painter.end()
+
+    @staticmethod
+    def _paint_glow(painter: QPainter, rect: QRectF) -> None:
+        """Draw the offset cyan-and-rose copy that sits behind the picture.
+
+        It is the same ring twice, each copy nudged the other way, which is what
+        gives the profile picture the coloured edge the network's own has. Drawn
+        behind the image and clipped to nothing, so it reads as a halo rather than
+        as two extra circles.
+        """
+
+        offset = rect.width() * AVATAR_GLOW_OFFSET
+        radius = rect.width() / 2
+        for color, dx, dy in (
+            (AVATAR_RING_COLORS[0], -offset, 0.0),
+            (AVATAR_RING_COLORS[1], offset, 0.0),
+        ):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(
+                QRectF(
+                    rect.center().x() - radius + dx,
+                    rect.center().y() - radius + dy,
+                    rect.width(),
+                    rect.height(),
+                )
+            )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
 
 class ContentStack(QStackedWidget):
@@ -386,7 +429,8 @@ class ProfileCard(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(AVATAR_GLOW_MARGIN, AVATAR_GLOW_MARGIN,
+                                  AVATAR_GLOW_MARGIN, AVATAR_GLOW_MARGIN)
         layout.setSpacing(14)
 
         self.avatar = AvatarLabel(72, ring=True)
@@ -399,13 +443,39 @@ class ProfileCard(QWidget):
         self.name_label.setObjectName("profileName")
         self.handle_label = QLabel(self)
         self.handle_label.setObjectName("cardSummary")
+
+        # The numbers as the profile itself lays them out: a large figure with a
+        # small caption underneath, one column each, divided by hairlines. Built
+        # once and hidden as a block, because the three have to appear together.
+        self.stats_row = QWidget(self)
+        stats_layout = QHBoxLayout(self.stats_row)
+        stats_layout.setContentsMargins(0, 6, 0, 6)
+        stats_layout.setSpacing(16)
+        self.stat_values: dict[str, QLabel] = {}
+        # Both widgets of a column, so an unknown figure can hide its caption too.
+        self.stat_fields: dict[str, tuple[QLabel, QLabel]] = {}
+        for index, (key, caption) in enumerate(
+            (("following", "Siguiendo"), ("followers", "Seguidores"), ("likes", "Me gusta"))
+        ):
+            if index:
+                divider = QFrame(self.stats_row)
+                divider.setObjectName("statDivider")
+                divider.setFixedWidth(1)
+                stats_layout.addWidget(divider, 0)
+            stats_layout.addLayout(self._build_stat(key, caption), 0)
+        stats_layout.addStretch(1)
+
+        # Kept for the single-line form, used when only one number is known and a
+        # three-column row would be two thirds empty.
         self.stats_label = QLabel(self)
         self.stats_label.setObjectName("profileStats")
+
         self.bio_label = QLabel(self)
         self.bio_label.setObjectName("muted")
         self.bio_label.setWordWrap(True)
         column.addWidget(self.name_label)
         column.addWidget(self.handle_label)
+        column.addWidget(self.stats_row)
         column.addWidget(self.stats_label)
         column.addSpacing(4)
         column.addWidget(self.bio_label)
@@ -413,6 +483,21 @@ class ProfileCard(QWidget):
         layout.addLayout(column, 1)
 
         self.set_profile("")
+
+    def _build_stat(self, key: str, caption: str) -> QVBoxLayout:
+        """One figure with its caption underneath, as the profile draws them."""
+
+        column = QVBoxLayout()
+        column.setSpacing(0)
+        value = QLabel(self.stats_row)
+        value.setObjectName("statValue")
+        label = QLabel(caption, self.stats_row)
+        label.setObjectName("statLabel")
+        column.addWidget(value)
+        column.addWidget(label)
+        self.stat_values[key] = value
+        self.stat_fields[key] = (value, label)
+        return column
 
     def set_profile(
         self,
@@ -422,6 +507,7 @@ class ProfileCard(QWidget):
         followers: str = "",
         likes: str = "",
         bio: str = "",
+        following: str = "",
     ) -> None:
         """Show what is known; anything empty is hidden rather than filled in."""
 
@@ -435,13 +521,25 @@ class ProfileCard(QWidget):
         self.handle_label.setText(handle if display_name else "")
         self.handle_label.setVisible(bool(display_name and handle))
 
+        numbers = {"following": following, "followers": followers, "likes": likes}
+        for key, (value, caption) in self.stat_fields.items():
+            # The caption keeps its own text: it is the label of the column, not a
+            # copy of the figure above it.
+            value.setText(numbers[key])
+            value.setVisible(bool(numbers[key]))
+            caption.setVisible(bool(numbers[key]))
+        # Three columns when there is more than one number; a single figure reads
+        # better on its own line than marooned in the first of three columns.
+        use_row = len([value for value in numbers.values() if value]) > 1
+        self.stats_row.setVisible(use_row)
+
         parts = []
         if likes:
             parts.append(f"{likes} me gusta")
         if followers:
             parts.append(f"{followers} seguidores")
         self.stats_label.setText(" · ".join(parts))
-        self.stats_label.setVisible(bool(parts))
+        self.stats_label.setVisible(bool(parts) and not use_row)
 
         # Emoji come from TikTok inside the biography; if this machine cannot draw
         # them, they are dropped here rather than shown as empty boxes.
@@ -449,10 +547,101 @@ class ProfileCard(QWidget):
         self.bio_label.setVisible(bool(bio))
 
     def numbers_text(self) -> str:
+        """Return the figures, in the layout they are currently drawn in.
+
+        The three-column row reads following, followers, likes — the order the
+        profile itself uses. The single-line fallback keeps the older order, so the
+        one number that is usually known (the likes) still comes first there.
+
+        Which layout is in use is decided from the *content*, not from
+        ``isVisible()``: a widget inside a window that was never shown reports that
+        it is not visible either, and this has to answer the same way regardless.
+        """
+
+        filled = {key: label.text() for key, label in self.stat_values.items()}
+        if len([value for value in filled.values() if value]) > 1:
+            parts = [
+                f"{filled[key]} {caption}"
+                for key, caption in (
+                    ("following", "siguiendo"),
+                    ("followers", "seguidores"),
+                    ("likes", "me gusta"),
+                )
+                if filled[key]
+            ]
+            if parts:
+                return " · ".join(parts)
         return self.stats_label.text()
 
     def bio_text(self) -> str:
         return self.bio_label.text()
+
+
+class SummaryStrip(QFrame):
+    """One row of label-and-value pairs, divided by hairlines.
+
+    The main page is the one used with a stream about to start, so the three
+    things that decide whether it can start — which account, whether it may
+    broadcast and whether a session is already open — are answered here, in one
+    line, instead of being spread over the banner, the account page and the
+    button label.
+    """
+
+    def __init__(self, fields: Sequence[tuple[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("summaryStrip")
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(14)
+
+        self._keys: dict[str, QLabel] = {}
+        self._values: dict[str, QLabel] = {}
+
+        for index, (key, label) in enumerate(fields):
+            if index:
+                divider = QFrame(self)
+                divider.setObjectName("summaryDivider")
+                divider.setFixedWidth(1)
+                layout.addWidget(divider, 0)
+            layout.addLayout(self._build_item(key, label), 1)
+
+    def _build_item(self, key: str, label: str) -> QVBoxLayout:
+        column = QVBoxLayout()
+        column.setSpacing(1)
+        caption = QLabel(label, self)
+        caption.setObjectName("summaryKey")
+        value = QLabel("—", self)
+        value.setObjectName("summaryValue")
+        value.setProperty("state", "neutral")
+        column.addWidget(caption)
+        column.addWidget(value)
+        self._keys[key] = caption
+        self._values[key] = value
+        return column
+
+    def set_value(self, key: str, value: str, state: str = "neutral") -> None:
+        """Show ``value`` for ``key``, tinted by ``state``.
+
+        The tint is a dynamic property, so the style has to be recomputed for it
+        to take effect; only the value label carries it, never the whole strip.
+        """
+
+        label = self._values.get(key)
+        if label is None:
+            return
+        label.setText(value or "—")
+        if label.property("state") != state:
+            label.setProperty("state", state)
+            label.style().unpolish(label)
+            label.style().polish(label)
+
+    def value(self, key: str) -> str:
+        """Return what is currently shown for ``key``, for tests and callers."""
+
+        label = self._values.get(key)
+        return label.text() if label is not None else ""
 
 
 class CopyField(QWidget):

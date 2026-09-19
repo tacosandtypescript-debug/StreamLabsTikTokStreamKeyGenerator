@@ -1,20 +1,22 @@
 """Construction of the widgets that make up the main window.
 
-The window is deliberately small and **fixed**: it is exactly as big as its
-content needs, it cannot be resized and it has no empty surface to fill. Because
-a fixed window cannot grow, the occasional part (the account and the token) lives
-on a second page inside the same window, reached with one button and a fade. The
-everyday screen keeps only what is used before every stream.
+The window is **resizable**, but it does not need resizing: it opens at exactly the
+size its content asks for, measured at the width it is going to have, and its
+minimum is the size below which the cards would start clipping. So the default is
+still "as big as its content", without the fixed window making every longer text
+unreachable.
 
-Every widget keeps the attribute name it had before, so the rest of the
-application (and its tests) did not have to change.
+Everything is in **one column**: cards, fields and buttons are stacked, so the
+window is narrow and tall — the shape that sits beside OBS — and the second page
+already had that shape. The account and the token keep their own page inside the
+same window, reached with one button and a fade.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -32,7 +34,18 @@ from PySide6.QtWidgets import (
 )
 
 from ui.geometry import clamped_height
-from ui.icons import application_icon, eye_icon
+from ui.icons import (
+    application_icon,
+    eye_icon,
+    key_icon,
+    link_icon,
+    play_icon,
+    refresh_icon,
+    save_icon,
+    shield_icon,
+    stop_icon,
+    user_icon,
+)
 from ui.theme import color_tokens, current_theme
 from ui.widgets import (
     ANIMATION_MS,
@@ -43,6 +56,7 @@ from ui.widgets import (
     HeightAnimator,
     ProfileCard,
     StateBanner,
+    SummaryStrip,
 )
 
 # The suggestion list has no content-based height, so it gets an explicit one.
@@ -50,9 +64,14 @@ SUGGESTIONS_HEIGHT = 120
 PAGE_STREAM = 0
 PAGE_ACCOUNT = 1
 OUTER_MARGIN = 12
-# Narrower than this and an RTMP URL stops being readable, so the fixed width has
-# a floor even though Qt would happily shrink the window to its minimum.
-MINIMUM_CONTENT_WIDTH = 480
+# Phone-shaped: narrow and tall, the way the account page already was. Narrower than
+# this and the URL field starts hiding the address and the summary columns crowd each
+# other; wider and it stops sitting comfortably beside OBS.
+MINIMUM_CONTENT_WIDTH = 430
+# The shortest the window may be made: below this the banner, the status bar and a
+# sliver of the page would be all that is left. Deliberately *not* derived from the
+# measured content, so that the window can always be shrunk and the pages scroll.
+MINIMUM_WINDOW_HEIGHT = 360
 # QWidget's "no limit", used while measuring the window again.
 UNLIMITED_SIZE = 16777215
 
@@ -60,9 +79,8 @@ UNLIMITED_SIZE = 16777215
 class WindowUiMixin:
     def init_ui(self) -> None:
         self.setWindowTitle("Generador de clave de TikTok Live (vía Streamlabs)")
-        # Fixed size: there is nothing to arrange and nothing to stretch, so the
-        # window has no reason to be resized or maximized.
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint)
+        # Resizable: the maximize button is left in place on purpose, because a
+        # user who wants the window out of the way can now do something about it.
         icon = application_icon()
         if icon is not None:
             self.setWindowIcon(icon)
@@ -109,28 +127,27 @@ class WindowUiMixin:
             effect.setOpacity(1.0)
             page.setGraphicsEffect(effect)
 
-        # The first measurement happens before Qt has polished the widgets, so the
-        # labels have not wrapped yet and the numbers are only close. Once the window
-        # is on screen they are real, and the size is corrected.
-        self._size_settled = False
-        self._apply_fixed_size()
+        # The window is measured from here on, but not sized yet: the first
+        # measurement happens before Qt has polished the widgets, so the labels have
+        # not wrapped and the numbers are only close. ``showEvent`` takes the one
+        # that counts.
+        self._initial_size_applied = False
+        self._apply_window_size()
 
     def showEvent(self, event: Any) -> None:
-        """Measure once more, now that the style has reached every widget.
+        """Size the window once, now that the style has reached every widget.
 
-        The first measurement happens while the widgets are still hidden, and Qt only
-        applies the final fonts and wraps the labels when they are on screen. Doing it
-        here and again as soon as the event loop runs keeps the window from appearing
-        at an approximate size and growing a moment later; if the first pass is already
-        right, the second changes nothing.
+        While the widgets are hidden Qt has not applied the final fonts and has not
+        wrapped the labels, so a measurement taken then is only an approximation —
+        and if it were latched in as the final size, the window would open short and
+        scroll over content that fits. The measurement that counts is this one, taken
+        as the window appears, and one more as soon as the event loop runs, by which
+        point every deferred layout has been applied.
         """
 
         super().showEvent(event)
-        if self._size_settled:
-            return
-        self._size_settled = True
-        self._apply_fixed_size()
-        QTimer.singleShot(0, self._apply_fixed_size)
+        self._apply_window_size(initial=True)
+        self._initial_size_applied = True
 
     # ------------------------------------------------------------------ pages
 
@@ -163,8 +180,8 @@ class WindowUiMixin:
         self._page_animation = animation
         animation.start()
 
-    def _apply_fixed_size(self) -> None:
-        """Freeze the window at the size its content asks for.
+    def _measure(self) -> tuple[int, int]:
+        """Return the ``(width, height)`` this window's content asks for.
 
         Both pages are measured, so the taller one fits without clipping, and the
         size follows the system font. Each page is asked for the height it needs
@@ -175,11 +192,6 @@ class WindowUiMixin:
         was wrong twice over: it cannot grow a window whose maximum size is already
         fixed, and every measurement changes the state the next one reads, so the
         result depended on the order. This is arithmetic instead.
-
-        The result never exceeds what the screen offers: a 1080p laptop at 150% of
-        scaling leaves about 690 logical pixels, and a window taller than the screen
-        has a bottom nobody can reach, because it cannot be resized. The pages scroll
-        in that case, and not at all when they fit.
         """
 
         self.pages.setMinimumHeight(0)
@@ -191,11 +203,9 @@ class WindowUiMixin:
         )
         width = max(inner_width + margins.left() + margins.right(), MINIMUM_CONTENT_WIDTH)
 
-        # The height each page needs *at the width it is going to have*: a height
-        # measured at another width is simply the wrong height, because the wrapped
-        # labels wrap somewhere else. Each page is measured while it is the one on
-        # screen: a hidden page has not wrapped its labels yet and would answer short,
-        # which made the window change size depending on which page was open.
+        # Each page is measured while it is the one on screen: a hidden page has not
+        # wrapped its labels yet and would answer short, which made the window change
+        # size depending on which page was open.
         heights = []
         current = self.pages.currentIndex()
         for index in (PAGE_STREAM, PAGE_ACCOUNT):
@@ -208,18 +218,43 @@ class WindowUiMixin:
                 heights.append(self._page_height(page, inner_width))
         self.pages.setCurrentIndex(current)
         content_height = max(heights)
-        window_height = content_height + self._chrome_height()
+        return width, content_height + self._chrome_height()
 
-        # The pages keep their natural height, so a window with no room scrolls
-        # instead of squeezing the cards on top of one another.
-        self.pages.set_content_height(content_height)
+    def _apply_window_size(self, *, initial: bool = False) -> None:
+        """Set the minimum the content needs and, once, the size it asks for.
 
-        height = clamped_height(window_height, self.available_height())
+        The window is resizable, so this no longer freezes it: it records the
+        smallest size at which nothing is clipped and opens the window at its
+        natural size the first time. Later measurements only move the minimum, so a
+        size the user chose is never taken away from them.
+
+        The result never exceeds what the screen offers: a 1080p laptop at 150% of
+        scaling leaves about 690 logical pixels, and a window taller than the screen
+        has a bottom nobody can reach. The pages scroll in that case, and not at all
+        when they fit.
+        """
+
+        width, window_height = self._measure()
+        available = self.available_height()
+
+        # The floors are fixed, not measured. A minimum taken from the measured
+        # content would rise as the window narrows — narrower means taller — which
+        # would make the window refuse to be narrowed at all, and a minimum equal to
+        # the measured height leaves the page nothing to do but scroll even at the
+        # size it asked for.
+        self.setMinimumSize(MINIMUM_CONTENT_WIDTH, MINIMUM_WINDOW_HEIGHT)
+
+        # Only the pass taken while the window is actually on screen is a final
+        # answer; while the widgets are still hidden the measurement is an
+        # approximation and sizing to it would open the window short.
+        if self._initial_size_applied and not initial:
+            return
+        height = clamped_height(window_height, available)
         if height < window_height:
             # The bar takes width from the viewport: give it back, so nothing ends
             # up hidden under the scrollbar.
             width += self.scroll.verticalScrollBar().sizeHint().width()
-        self.setFixedSize(width, height)
+        self.resize(width, height)
 
     @staticmethod
     def _page_height(page: QWidget, width: int) -> int:
@@ -276,27 +311,123 @@ class WindowUiMixin:
             label.setBuddy(buddy)
         return label
 
+    def _icon_label(self, text: str, icon: Any, buddy: QWidget | None = None) -> QWidget:
+        """Build a field label with a small drawn icon in front of the text.
+
+        The icon is a separate widget rather than a pixmap on the label: a QLabel
+        with both a text and a pixmap draws them in the same rectangle, and the
+        pixmap lands on top of the words.
+        """
+
+        row = QWidget()
+        row.setObjectName("fieldLabelRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        picture = QLabel()
+        picture.setPixmap(icon.pixmap(14, 14))
+        layout.addWidget(picture)
+        layout.addWidget(self._field_label(text, buddy), 1)
+        return row
+
     def _build_stream_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
+        # Every icon is drawn in the colour of the theme it is drawn for, so the
+        # tokens are read once, here, rather than inside each helper.
+        tokens = color_tokens(current_theme())
+
         # The account header first: who this is about, before what to do with it.
         layout.addWidget(self._profile_header(account=False))
 
-        stream_card, stream_layout = self._card("Directo")
+        # One column, everything stacked: the window is narrow and tall, which is
+        # the shape that sits beside OBS and the shape the second page already has.
+        layout.addWidget(self._stream_details_card(tokens))
+        layout.addWidget(self._connection_card(tokens))
+
+        # Phone-shaped window: three buttons do not fit on one line, so the main
+        # action gets the full width — which is also the one thing the user came
+        # here to press — and the other two share the line below it.
+        self.go_live_btn = QPushButton("Preparar directo")
+        self.go_live_btn.setObjectName("primary")
+        self.go_live_btn.setIcon(play_icon(16, tokens["primaryText"]))
+        self.go_live_btn.setIconSize(QSize(16, 16))
+        self.go_live_btn.setToolTip(
+            "Pide a Streamlabs que prepare la sesión y devuelve la URL y la clave"
+        )
+        self.go_live_btn.setEnabled(False)
+        self.go_live_btn.clicked.connect(lambda _checked=False: self.start_stream())
+        layout.addWidget(self.go_live_btn)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+
+        self.end_live_btn = QPushButton("Finalizar directo")
+        # The one action that throws work away, so it wears the other signature
+        # colour instead of looking like every other button.
+        self.end_live_btn.setObjectName("danger")
+        self.end_live_btn.setIcon(stop_icon(16, tokens["danger"]))
+        self.end_live_btn.setIconSize(QSize(16, 16))
+        self.end_live_btn.setToolTip(
+            "Detén primero la salida de TikTok en OBS y después cierra la sesión de Streamlabs"
+        )
+        self.end_live_btn.setEnabled(False)
+        self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
+        actions.addWidget(self.end_live_btn, 1)
+
+        self.save_btn = QPushButton("Guardar ajustes")
+        self.save_btn.setIcon(save_icon(16, tokens["text"]))
+        self.save_btn.setIconSize(QSize(16, 16))
+        self.save_btn.setToolTip(
+            "Guarda el título, la categoría y las preferencias (sin secretos)"
+        )
+        self.save_btn.clicked.connect(lambda _checked=False: self.save_config())
+        actions.addWidget(self.save_btn, 1)
+        layout.addLayout(actions)
+
+        # What decides whether the stream can be prepared, answered in one line so
+        # the account page does not have to be opened to find out.
+        self.summary = SummaryStrip(
+            (
+                ("account", "Cuenta"),
+                ("permission", "Puede emitir"),
+                ("session", "Sesión"),
+            )
+        )
+        layout.addWidget(self.summary)
+
+        # The link to the account page sits at the bottom, so the space the taller
+        # page forces on this one reads as a footer instead of a gap.
+        layout.addStretch(1)
+        self.account_btn = QPushButton("Cuenta y token")
+        self.account_btn.setObjectName("link")
+        self.account_btn.setIcon(user_icon(16, tokens["primary"]))
+        self.account_btn.setIconSize(QSize(16, 16))
+        self.account_btn.setToolTip("Token de Streamlabs, usuario y permiso de emisión")
+        self.account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.account_btn.clicked.connect(self.show_account_page)
+        layout.addWidget(self.account_btn)
+        return page
+
+    def _stream_details_card(self, tokens: dict[str, str]) -> QFrame:
+        """What the stream is: its title, its category and who it is for."""
+
+        card, card_layout = self._card("Directo")
         self.stream_title = QLineEdit()
         self.stream_title.setToolTip("El título que tendrá el directo en TikTok")
         self.stream_title.textChanged.connect(lambda _text: self._update_controls())
-        stream_layout.addWidget(self._field_label("&Título del directo", self.stream_title))
-        stream_layout.addWidget(self.stream_title)
+        card_layout.addWidget(self._field_label("&Título del directo", self.stream_title))
+        card_layout.addWidget(self.stream_title)
 
         self.game_category = QLineEdit()
         self.game_category.setToolTip("Escribe para buscar; elige una sugerencia de la lista")
         self.game_category.textChanged.connect(self.handle_game_search)
-        stream_layout.addWidget(self._field_label("&Categoría", self.game_category))
-        stream_layout.addWidget(self.game_category)
+        card_layout.addWidget(self._field_label("&Categoría", self.game_category))
+        card_layout.addWidget(self.game_category)
 
         self.suggestions_list = QListWidget()
         self.suggestions_list.setMaximumHeight(0)
@@ -308,23 +439,31 @@ class WindowUiMixin:
         )
         # Opening or closing the suggestions changes how tall the page is, and the
         # window is fixed: without measuring again the list ends up squeezed.
-        self._suggestions_animator.animation().finished.connect(self._apply_fixed_size)
-        stream_layout.addWidget(self.suggestions_list)
+        self._suggestions_animator.animation().finished.connect(self._apply_window_size)
+        card_layout.addWidget(self.suggestions_list)
 
         self.mature_checkbox = QCheckBox("Contenido para adultos")
         self.mature_checkbox.setToolTip("Marca la sesión como contenido para adultos")
         self.mature_checkbox.stateChanged.connect(lambda _state: self._update_controls())
-        stream_layout.addWidget(self.mature_checkbox)
-        layout.addWidget(stream_card)
+        card_layout.addWidget(self.mature_checkbox)
+        card_layout.addStretch(1)
+        return card
 
-        connection_card, connection_layout = self._card("Conexión")
+    def _connection_card(self, tokens: dict[str, str]) -> QFrame:
+        """Where the stream goes: the server and the key OBS has to be given."""
+
+        card, card_layout = self._card("Conexión")
         self.stream_url = CopyField(placeholder="Aparecerá al preparar el directo")
         self.stream_url.copied.connect(lambda: self.copy_to_clipboard(self.stream_url, False))
         self.copy_url_btn = self.stream_url.copy_button
-        connection_layout.addWidget(
-            self._field_label("URL del servidor", self.stream_url.line_edit)
+        card_layout.addWidget(
+            self._icon_label(
+                "URL del servidor",
+                link_icon(14, tokens["muted"]),
+                self.stream_url.line_edit,
+            )
         )
-        connection_layout.addWidget(self.stream_url)
+        card_layout.addWidget(self.stream_url)
 
         self.stream_key = CopyField(
             sensitive=True,
@@ -333,55 +472,21 @@ class WindowUiMixin:
         )
         self.stream_key.copied.connect(lambda: self.copy_to_clipboard(self.stream_key, True))
         self.copy_key_btn = self.stream_key.copy_button
-        connection_layout.addWidget(
-            self._field_label("Clave de retransmisión", self.stream_key.line_edit)
+        card_layout.addWidget(
+            self._icon_label(
+                "Clave de retransmisión",
+                key_icon(14, tokens["muted"]),
+                self.stream_key.line_edit,
+            )
         )
-        connection_layout.addWidget(self.stream_key)
+        card_layout.addWidget(self.stream_key)
 
         note = QLabel("La clave se retira del portapapeles a los 60 segundos.")
         note.setObjectName("muted")
         note.setWordWrap(True)
-        connection_layout.addWidget(note)
-        layout.addWidget(connection_card)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
-        self.go_live_btn = QPushButton("Preparar directo")
-        self.go_live_btn.setObjectName("primary")
-        self.go_live_btn.setToolTip(
-            "Pide a Streamlabs que prepare la sesión y devuelve la URL y la clave"
-        )
-        self.go_live_btn.setEnabled(False)
-        self.go_live_btn.clicked.connect(lambda _checked=False: self.start_stream())
-        actions.addWidget(self.go_live_btn)
-
-        self.end_live_btn = QPushButton("Finalizar directo")
-        self.end_live_btn.setToolTip(
-            "Detén primero la salida de TikTok en OBS y después cierra la sesión de Streamlabs"
-        )
-        self.end_live_btn.setEnabled(False)
-        self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
-        actions.addWidget(self.end_live_btn)
-        actions.addStretch(1)
-
-        self.save_btn = QPushButton("Guardar datos")
-        self.save_btn.setToolTip(
-            "Guarda el título, la categoría y las preferencias (sin secretos)"
-        )
-        self.save_btn.clicked.connect(lambda _checked=False: self.save_config())
-        actions.addWidget(self.save_btn)
-        layout.addLayout(actions)
-
-        # The link to the account page sits at the bottom, so the space the taller
-        # page forces on this one reads as a footer instead of a gap.
-        layout.addStretch(1)
-        self.account_btn = QPushButton("Cuenta y token")
-        self.account_btn.setObjectName("link")
-        self.account_btn.setToolTip("Token de Streamlabs, usuario y permiso de emisión")
-        self.account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.account_btn.clicked.connect(self.show_account_page)
-        layout.addWidget(self.account_btn)
-        return page
+        card_layout.addWidget(note)
+        card_layout.addStretch(1)
+        return card
 
     def _profile_header(self, *, account: bool) -> QFrame:
         """Build the account header, once per page.
@@ -444,6 +549,7 @@ class WindowUiMixin:
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
+        tokens = color_tokens(current_theme())
 
         layout.addWidget(self._profile_header(account=True))
 
@@ -453,7 +559,13 @@ class WindowUiMixin:
         self.token_entry.setEchoMode(QLineEdit.EchoMode.Password)
         self.token_entry.textChanged.connect(lambda _text: self.handle_token_change())
         self.token_entry.returnPressed.connect(self.refresh_account_info)
-        token_layout.addWidget(self._field_label("T&oken de Streamlabs", self.token_entry))
+        token_layout.addWidget(
+            self._icon_label(
+                "T&oken de Streamlabs",
+                key_icon(14, tokens["muted"]),
+                self.token_entry,
+            )
+        )
 
         token_row = QHBoxLayout()
         token_row.setSpacing(4)
@@ -470,7 +582,9 @@ class WindowUiMixin:
 
         load_buttons = QHBoxLayout()
         load_buttons.setSpacing(8)
-        self.load_local_btn = QPushButton("Cargar desde el PC")
+        self.load_local_btn = QPushButton("Leer del equipo")
+        self.load_local_btn.setIcon(refresh_icon(16, tokens["text"]))
+        self.load_local_btn.setIconSize(QSize(16, 16))
         self.load_local_btn.setToolTip(
             "Lee el token que Streamlabs Desktop tiene guardado en este equipo"
         )
@@ -478,19 +592,25 @@ class WindowUiMixin:
         load_buttons.addWidget(self.load_local_btn)
 
         self.load_online_btn = QPushButton("Iniciar sesión web")
+        self.load_online_btn.setIcon(user_icon(16, tokens["text"]))
+        self.load_online_btn.setIconSize(QSize(16, 16))
         self.load_online_btn.setToolTip("Obtiene el token con el inicio de sesión de Streamlabs")
         self.load_online_btn.clicked.connect(self.fetch_online_token)
         load_buttons.addWidget(self.load_online_btn)
         token_layout.addLayout(load_buttons)
 
-        self.refresh_btn = QPushButton("Actualizar datos de la cuenta")
+        self.refresh_btn = QPushButton("Comprobar la cuenta")
+        self.refresh_btn.setIcon(refresh_icon(16, tokens["text"]))
+        self.refresh_btn.setIconSize(QSize(16, 16))
         self.refresh_btn.setToolTip(
             "Vuelve a consultar el usuario, el estado y el permiso de emisión"
         )
         self.refresh_btn.clicked.connect(lambda _checked=False: self.refresh_account_info())
         token_layout.addWidget(self.refresh_btn)
 
-        self.save_token_btn = QPushButton("Guardar token de forma segura")
+        self.save_token_btn = QPushButton("Guardar el token de forma segura")
+        self.save_token_btn.setIcon(save_icon(16, tokens["text"]))
+        self.save_token_btn.setIconSize(QSize(16, 16))
         self.save_token_btn.setToolTip(
             "Guarda el token validado en el almacén de credenciales del sistema"
         )
@@ -501,6 +621,9 @@ class WindowUiMixin:
         account_card, account_layout = self._card("Permiso de emisión")
         live_row = QHBoxLayout()
         live_row.setSpacing(8)
+        permission_icon = QLabel()
+        permission_icon.setPixmap(shield_icon(14, tokens["muted"]).pixmap(14, 14))
+        live_row.addWidget(permission_icon)
         live_row.addWidget(self._field_label("Puede emitir"))
         self.can_go_live = QLabel("—")
         self.can_go_live.setObjectName("badge")
@@ -524,6 +647,8 @@ class WindowUiMixin:
 
         back_row = QHBoxLayout()
         self.back_btn = QPushButton("Volver al directo")
+        self.back_btn.setIcon(play_icon(16, tokens["text"]))
+        self.back_btn.setIconSize(QSize(16, 16))
         self.back_btn.setToolTip("Vuelve a la pantalla del directo")
         self.back_btn.clicked.connect(self.show_stream_page)
         back_row.addWidget(self.back_btn)

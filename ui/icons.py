@@ -14,7 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 
 from runtime import is_frozen
 
@@ -151,5 +159,142 @@ def check_icon(size: int = 16, color: str = "#12854a") -> QIcon:
             ]
         )
     )
+    painter.end()
+    return QIcon(pixmap)
+
+
+def play_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn triangle, for the button that prepares the stream."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    triangle = QPainterPath()
+    triangle.moveTo(4.5 * unit, 2.5 * unit)
+    triangle.lineTo(13 * unit, 8 * unit)
+    triangle.lineTo(4.5 * unit, 13.5 * unit)
+    triangle.closeSubpath()
+    painter.setBrush(QColor(color))
+    painter.drawPath(triangle)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def stop_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn square, for the button that finishes the stream."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.setBrush(QColor(color))
+    painter.drawRoundedRect(QRectF(3.5 * unit, 3.5 * unit, 9 * unit, 9 * unit), unit, unit)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def save_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn floppy disk, for the button that saves the settings."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    # The body, with the corner cut off the way the real icon has it.
+    body = QPainterPath()
+    body.moveTo(2 * unit, 2 * unit)
+    body.lineTo(11.5 * unit, 2 * unit)
+    body.lineTo(14 * unit, 4.5 * unit)
+    body.lineTo(14 * unit, 14 * unit)
+    body.lineTo(2 * unit, 14 * unit)
+    body.closeSubpath()
+    painter.drawPath(body)
+    # The label at the bottom and the shutter at the top.
+    painter.drawRect(QRectF(5 * unit, 9.5 * unit, 6 * unit, 4.5 * unit))
+    painter.drawRect(QRectF(5.5 * unit, 2 * unit, 5 * unit, 3.5 * unit))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def refresh_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn circular arrow, for the button that reloads the account."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    # Three quarters of a circle, so the gap is where the arrowhead goes.
+    painter.drawArc(QRectF(3 * unit, 3 * unit, 10 * unit, 10 * unit), 60 * 16, 280 * 16)
+    head = QPainterPath()
+    head.moveTo(13.0 * unit, 4.6 * unit)
+    head.lineTo(9.2 * unit, 5.4 * unit)
+    head.lineTo(11.9 * unit, 8.0 * unit)
+    head.closeSubpath()
+    painter.setBrush(QColor(color))
+    painter.drawPath(head)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def user_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn head and shoulders, for the account button."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawEllipse(QRectF(5.5 * unit, 2 * unit, 5 * unit, 5 * unit))
+    # An open arc, so it reads as a pair of shoulders rather than a closed blob.
+    painter.drawArc(QRectF(2.5 * unit, 9 * unit, 11 * unit, 10 * unit), 0, 180 * 16)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def key_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn key, for the token screen and the stream key field."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawEllipse(QRectF(1.5 * unit, 5.5 * unit, 6 * unit, 6 * unit))
+    painter.drawLine(QPointF(7 * unit, 7 * unit), QPointF(14.5 * unit, 7 * unit))
+    painter.drawLine(QPointF(11.5 * unit, 7 * unit), QPointF(11.5 * unit, 10 * unit))
+    painter.drawLine(QPointF(14 * unit, 7 * unit), QPointF(14 * unit, 9.5 * unit))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def link_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return two drawn chain links, for the server URL field."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    painter.drawRoundedRect(
+        QRectF(1.0 * unit, 5.5 * unit, 9 * unit, 5 * unit), 2.5 * unit, 2.5 * unit
+    )
+    painter.drawRoundedRect(
+        QRectF(6.0 * unit, 5.5 * unit, 9 * unit, 5 * unit), 2.5 * unit, 2.5 * unit
+    )
+    painter.drawLine(QPointF(6.6 * unit, 8 * unit), QPointF(9.4 * unit, 8 * unit))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def shield_icon(size: int = 16, color: str = "#000000") -> QIcon:
+    """Return a drawn shield, for the permission the account needs."""
+
+    pixmap = _blank_pixmap(size)
+    painter = _start_painting(pixmap, color, size)
+    unit = size / 16.0
+    shield = QPainterPath()
+    shield.moveTo(8 * unit, 1.8 * unit)
+    shield.lineTo(13.5 * unit, 4 * unit)
+    shield.lineTo(13.5 * unit, 8.5 * unit)
+    shield.cubicTo(
+        13.5 * unit, 11.5 * unit, 11 * unit, 13.3 * unit, 8 * unit, 14.4 * unit
+    )
+    shield.cubicTo(
+        5 * unit, 13.3 * unit, 2.5 * unit, 11.5 * unit, 2.5 * unit, 8.5 * unit
+    )
+    shield.lineTo(2.5 * unit, 4 * unit)
+    shield.closeSubpath()
+    painter.drawPath(shield)
     painter.end()
     return QIcon(pixmap)
