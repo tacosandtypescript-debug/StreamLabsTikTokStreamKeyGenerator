@@ -154,7 +154,8 @@ def _window_facts(window: Any) -> SelfCheckReport:
     )
 
     for name, attribute in (
-        ("Cabecera de perfil", "profile_card"),
+        ("Cabecera de perfil", "account_profile_card"),
+        ("Línea de cuenta del directo", "account_avatar"),
         ("Campos del directo", "stream_title"),
         ("Campo del token", "token_entry"),
     ):

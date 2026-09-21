@@ -1114,7 +1114,7 @@ def test_validating_the_account_fills_the_avatar_and_the_audience(app):
     app._account_loaded("token-value", info)
 
     assert app.avatar.initial() == "C"
-    assert app.profile_card.avatar.initial() == "C"
+    assert app.account_profile_card.avatar.initial() == "C"
     assert app.avatar.isHidden() is False
     assert "Adult Only" in app.mature_checkbox.toolTip()
 
@@ -1127,7 +1127,7 @@ def test_the_account_name_is_remembered_between_runs(app, store, qtbot):
     second = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(second)
 
-    assert second.profile_card.name_label.text() == "@creator"
+    assert second.account_profile_card.name_label.text() == "@creator"
     assert second.avatar.initial() == "C"
     assert second.avatar.isHidden() is False
 
@@ -1139,8 +1139,8 @@ def test_a_failed_validation_leaves_no_account_on_screen(app):
     app._account_failed("token-value", StreamlabsError("boom", status_code=500), silent=True)
 
     assert app.avatar.isHidden() is True
-    assert app.profile_card.avatar.isHidden() is True
-    assert app.profile_card.name_label.text() == "Sin cuenta"
+    assert app.account_profile_card.avatar.isHidden() is True
+    assert app.account_profile_card.name_label.text() == "Sin cuenta"
 
 
 def _chosen_image(tmp_path, name="elegida.png", size=80):
@@ -1164,7 +1164,7 @@ def test_choosing_a_picture_stores_it_and_shows_it(app, tmp_path, monkeypatch):
 
     assert avatar_store.has_avatar() is True
     assert app.avatar.has_picture() is True
-    assert app.profile_card.avatar.has_picture() is True
+    assert app.account_profile_card.avatar.has_picture() is True
     assert app.remove_avatar_btn.isEnabled() is True
     assert "actualizada" in app.app_status.text()
 
@@ -1378,8 +1378,8 @@ def test_the_public_numbers_come_from_the_cache_when_it_is_fresh(app, monkeypatc
     app._load_profile("creator")
 
     assert fetched == []
-    assert app.profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
-    assert app.profile_card.bio_text() == "Creador de Fortnite"
+    assert app.account_profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
+    assert app.account_profile_card.bio_text() == "Creador de Fortnite"
 
 
 def test_without_a_cache_the_numbers_are_fetched(app, monkeypatch):
@@ -1403,7 +1403,7 @@ def test_without_an_account_there_is_nothing_to_read(app, monkeypatch):
 def test_a_fetched_profile_fills_the_card_and_is_cached(app):
     app._profile_fetched(_fresh_profile(followers="1702", likes="123.5K"), False)
 
-    assert app.profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
+    assert app.account_profile_card.numbers_text() == "1702 seguidores · 123.5K me gusta"
     cached = profile_store.load_cached_profile("creator")
     assert cached is not None
     assert cached.followers == "1702"
@@ -1423,32 +1423,59 @@ def test_a_failed_profile_read_is_silent_and_keeps_the_header(app, monkeypatch):
 
     assert dialogs == []
     assert "públicos" in app.app_status.text()
-    assert app.profile_card.name_label.text() == "@creator"
+    assert app.account_profile_card.name_label.text() == "@creator"
 
 
 def test_the_header_hides_what_it_does_not_know(app):
     app._apply_profile(profile_store.Profile(username="creator"))
 
-    assert app.profile_card.numbers_text() == ""
-    assert app.profile_card.stats_label.isHidden() is True
-    assert app.profile_card.bio_label.isHidden() is True
-    assert app.profile_card.name_label.text() == "@creator"
+    assert app.account_profile_card.numbers_text() == ""
+    assert app.account_profile_card.stats_label.isHidden() is True
+    assert app.account_profile_card.bio_label.isHidden() is True
+    assert app.account_profile_card.name_label.text() == "@creator"
 
 
-def test_both_pages_show_the_same_header(app):
+def test_the_full_profile_lives_on_the_account_page(app):
+    """The stream page carries one line; the whole card is where the account is set up.
+
+    The card is 176 px of a window that is exactly as tall as its content, and it was
+    what pushed the stream page into scrolling.
+    """
+
     app._apply_profile(profile_store.Profile(username="creator", followers="1702", likes="1K"))
 
-    for card in (app.profile_card, app.account_profile_card):
-        assert card.name_label.text() == "@creator"
-        assert card.numbers_text() == "1702 seguidores · 1K me gusta"
+    card = app.account_profile_card
+    assert card.name_label.text() == "@creator"
+    assert card.numbers_text() == "1702 seguidores · 1K me gusta"
+    assert card.isVisibleTo(app.account_page) is True
+    # And it is not on the stream page any more.
+    assert card.isVisibleTo(app.stream_page) is False
 
 
-def test_the_header_is_on_the_main_screen(app):
-    # It used to be one click away and the user expected it straight away.
-    app._apply_profile(profile_store.Profile(username="creator", followers="1702"))
+def test_the_stream_page_shows_which_account_it_is(app):
+    """One line, because that is what the stream page needs to say."""
 
-    assert app.profile_card.isVisibleTo(app.stream_page) is True
-    assert app.account_profile_card.isVisibleTo(app.account_page) is True
+    app._apply_profile(
+        profile_store.Profile(username="creator", display_name="Creator Uno")
+    )
+
+    assert app.account_name.text() == "Creator Uno"
+    assert app.account_handle.text() == "@creator"
+    assert app.account_avatar.isVisibleTo(app.stream_page) is True
+
+
+def test_the_stream_page_line_says_the_handle_when_there_is_no_name(app):
+    app._apply_profile(profile_store.Profile(username="creator"))
+
+    assert app.account_name.text() == "@creator"
+    assert app.account_handle.text() == ""
+
+
+def test_without_an_account_the_stream_page_line_says_so(app):
+    app._show_username("")
+
+    assert app.account_name.text() == "Sin cuenta"
+    assert app.account_handle.text() == ""
 
 
 def test_asking_for_the_account_data_refreshes_the_numbers_too(app, monkeypatch):

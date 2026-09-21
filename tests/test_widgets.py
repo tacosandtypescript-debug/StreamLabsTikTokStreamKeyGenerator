@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QAbstractAnimation
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from ui.theme import BANNER_STATES, state_accent
 from ui.widgets import (
@@ -284,36 +284,58 @@ def test_repeating_the_busy_state_does_not_restart_the_fade(qtbot):
     assert bar.animation().state() == QAbstractAnimation.State.Stopped
 
 
-def test_the_stack_accepts_the_height_the_window_worked_out(qtbot):
-    # Qt's own hint is measured at the width the widget would like to have, which is
-    # narrower here, so it exaggerates and would make the pages scroll for nothing.
+def test_the_stack_reports_the_height_of_its_tallest_page(qtbot):
+    """Both pages exist, and the window has to hold the taller one.
+
+    Qt derives a stack's minimum from the page it is showing, so a short page on top
+    made the stack claim a height the window had not budgeted for — and the pages
+    then scrolled by exactly the difference.
+    """
+
     stack = ContentStack()
     qtbot.addWidget(stack)
-    stack.addWidget(QWidget())
 
-    stack.set_content_height(495)
+    short = QWidget()
+    QVBoxLayout(short).addWidget(QLabel("una linea"))
+    tall = QWidget()
+    tall_layout = QVBoxLayout(tall)
+    for _ in range(20):
+        tall_layout.addWidget(QLabel("una linea"))
 
-    assert stack.minimumSizeHint().height() == 495
-    assert stack.content_height() == 495
+    stack.addWidget(short)
+    stack.addWidget(tall)
+
+    assert stack.minimumSizeHint().height() >= tall.layout().minimumSize().height()
+    assert stack.minimumSizeHint().height() > short.layout().minimumSize().height()
 
 
-def test_the_stack_keeps_its_own_hint_until_something_is_measured(qtbot):
+def test_the_stack_keeps_qts_own_hint_when_it_has_no_pages(qtbot):
     stack = ContentStack()
     qtbot.addWidget(stack)
-    stack.addWidget(QWidget())
 
-    assert stack.content_height() == 0
-    assert stack.minimumSizeHint() == stack.sizeHint()
+    assert stack.minimumSizeHint() == super(ContentStack, stack).minimumSizeHint()
 
 
-def test_the_stack_ignores_a_nonsense_height(qtbot):
+def test_the_stack_does_not_depend_on_which_page_is_on_top(qtbot):
+    """Switching page must not change the height the window is asked for."""
+
     stack = ContentStack()
     qtbot.addWidget(stack)
-    stack.addWidget(QWidget())
+    short = QWidget()
+    QVBoxLayout(short).addWidget(QLabel("corta"))
+    tall = QWidget()
+    tall_layout = QVBoxLayout(tall)
+    for _ in range(20):
+        tall_layout.addWidget(QLabel("larga"))
+    stack.addWidget(short)
+    stack.addWidget(tall)
 
-    stack.set_content_height(-40)
+    stack.setCurrentIndex(0)
+    with_short_on_top = stack.minimumSizeHint().height()
+    stack.setCurrentIndex(1)
+    with_tall_on_top = stack.minimumSizeHint().height()
 
-    assert stack.content_height() == 0
+    assert with_short_on_top == with_tall_on_top
 
 
 def test_the_scroll_area_reports_the_size_of_its_content(qtbot):

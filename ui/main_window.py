@@ -1199,15 +1199,36 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         """Draw the account header from whatever is known, inventing nothing."""
 
         profile = self._profile
-        for card in (self.profile_card, self.account_profile_card):
-            card.set_profile(
-                (profile.username if profile else "") or self._last_username,
-                display_name=profile.display_name if profile else "",
-                followers=profile.followers if profile else "",
-                likes=profile.likes if profile else "",
-                bio=profile.bio if profile else "",
-            )
+        username = (profile.username if profile else "") or self._last_username
+        self.account_profile_card.set_profile(
+            username,
+            display_name=profile.display_name if profile else "",
+            followers=profile.followers if profile else "",
+            likes=profile.likes if profile else "",
+            bio=profile.bio if profile else "",
+        )
+        # The stream page only carries one line, but it carries it truthfully: the
+        # display name when there is one, and the handle as the account's identity.
+        clean = (username or "").strip().lstrip("@")
+        self._show_account_line(
+            clean,
+            (profile.display_name if profile else "") or "",
+        )
         self._sync_account_summary()
+
+    def _show_account_line(self, username: str, display_name: str) -> None:
+        """Fill the one-line account row on the stream page."""
+
+        self.account_avatar.set_username(username)
+        if display_name and username:
+            self.account_name.setText(display_name)
+            self.account_handle.setText(f"@{username}")
+        elif username:
+            self.account_name.setText(f"@{username}")
+            self.account_handle.setText("")
+        else:
+            self.account_name.setText("Sin cuenta")
+            self.account_handle.setText("")
 
     def _apply_avatar_picture(self) -> None:
         """Put the chosen picture, if there is one, on every avatar."""
@@ -1215,7 +1236,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         picture = avatar_store.load_avatar()
         for label in (
             self.avatar,
-            self.profile_card.avatar,
+            self.account_avatar,
             self.account_profile_card.avatar,
         ):
             label.set_picture(picture)

@@ -357,32 +357,29 @@ class AvatarLabel(QWidget):
 
 
 class ContentStack(QStackedWidget):
-    """A stack that accepts being shorter than its content's own minimum hint.
+    """A stack of pages that reports the height of the tallest one.
 
-    Qt derives a layout's minimum from its widgets' hints, and those are measured at
-    the width the widget would *like* to have. At the width the window actually has,
-    the wrapped labels need fewer lines and therefore less height. Trusting the hint
-    would make the pages scroll when they fit perfectly well, so the stack is told
-    the height the window computed for it instead.
+    Qt derives a stack's minimum from the page it is showing, but both pages exist
+    and the window has to hold the taller of them, so the hint is taken from all of
+    them. The window measures its pages itself anyway; this only has to agree with
+    that measurement, or the stack ends up claiming a height the window did not
+    budget for and the pages scroll by exactly the difference.
     """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._content_height = 0
-
-    def set_content_height(self, height: int) -> None:
-        """Record how tall the pages really need to be at the width they have."""
-
-        self._content_height = max(int(height), 0)
-        self.updateGeometry()
-
-    def content_height(self) -> int:
-        return self._content_height
 
     def minimumSizeHint(self) -> QSize:
         hint = super().minimumSizeHint()
-        if self._content_height:
-            return QSize(hint.width(), self._content_height)
+        tallest = 0
+        for index in range(self.count()):
+            page = self.widget(index)
+            if page is None:
+                continue
+            layout = page.layout()
+            if layout is not None:
+                tallest = max(tallest, layout.minimumSize().height())
+            else:  # pragma: no cover - every page here has a layout
+                tallest = max(tallest, page.minimumSizeHint().height())
+        if tallest:
+            return QSize(hint.width(), tallest)
         return hint
 
 

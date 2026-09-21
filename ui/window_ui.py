@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -50,6 +50,7 @@ from ui.icons import (
 from ui.theme import color_tokens, current_theme
 from ui.widgets import (
     ANIMATION_MS,
+    AvatarLabel,
     ContentScrollArea,
     ContentStack,
     CopyField,
@@ -92,10 +93,8 @@ GUIDE_STEPS: tuple[tuple[str, str], ...] = (
 # window must add, and the full wording is still in «Más» → «Ayuda».
 ANTES_DEL_DIRECTO: tuple[str, ...] = (
     "Solicita el acceso a TikTok LIVE a través de Streamlabs: se pide aparte.",
-    "Carga el token con «Iniciar sesión web» y comprueba la cuenta: tiene que decir "
-    "«Puede emitir: Sí».",
-    "Guarda el token de forma segura para no repetir el login, y ya puedes preparar el "
-    "directo desde la otra pantalla.",
+    "Carga el token, comprueba que dice «Puede emitir: Sí» y prepáralo en la otra "
+    "pantalla.",
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -111,6 +110,11 @@ OUTER_MARGIN = 12
 WINDOW_WIDTH = 430
 # QWidget's "no limit", used while measuring the window again.
 UNLIMITED_SIZE = 16777215
+# How long to keep re-measuring after the window first appears. Qt wraps the last
+# labels a moment after the event loop starts, so a single measurement taken as the
+# window appears can be a few pixels short — and a few pixels is the difference
+# between the pages fitting and the pages scrolling.
+SIZE_SETTLE_MS = 60
 
 
 class WindowUiMixin:
@@ -200,6 +204,13 @@ class WindowUiMixin:
             # there is nothing to redo and nothing to undo.
             return
         self._apply_window_size(initial=True)
+        # The measurement taken as the window appears is still early: Qt has not
+        # finished wrapping every label, so the content keeps growing for a moment
+        # after the event loop starts. Re-measuring only while this first show is
+        # still settling is what catches it, and it stops there — restoring the
+        # window from the taskbar later never resizes it.
+        QTimer.singleShot(0, self._apply_window_size)
+        QTimer.singleShot(SIZE_SETTLE_MS, self._apply_window_size)
 
     # ------------------------------------------------------------------ pages
 
@@ -345,8 +356,11 @@ class WindowUiMixin:
         card.setObjectName("card")
         card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(6)
+        # Tight on purpose: the window is exactly as tall as its content, so every
+        # pixel of padding here is a pixel of window, and the difference between the
+        # pages fitting and the pages scrolling is a couple of dozen of them.
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(5)
         heading = QLabel(title)
         heading.setObjectName("cardTitle")
         layout.addWidget(heading)
@@ -420,14 +434,16 @@ class WindowUiMixin:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         # Every icon is drawn in the colour of the theme it is drawn for, so the
         # tokens are read once, here, rather than inside each helper.
         tokens = color_tokens(current_theme())
 
         # The account header first: who this is about, before what to do with it.
-        layout.addWidget(self._profile_header(account=False))
+        # One line with the account, not the whole profile card: the window is
+        # exactly as tall as its content, and the card is 176 px of it.
+        layout.addWidget(self._account_line())
 
         # And then what to do. Everything below is a form, and a form is impossible
         # to start when nobody says which field matters first or how far along you
@@ -601,19 +617,45 @@ class WindowUiMixin:
         card_layout.addStretch(1)
         return card
 
-    def _profile_header(self, *, account: bool) -> QFrame:
-        """Build the account header, once per page.
+    def _account_line(self) -> QFrame:
+        """A one-line reminder of which account the stream belongs to.
 
-        Both pages show it: on the main one it is what the user asks about, and on
-        the account one it keeps the page from ending in a stretch of nothing.
+        The stream page used to carry the whole profile header — picture, name,
+        numbers and biography — which is 176 px of a window that is exactly as tall
+        as its content. That card belongs on the account page, where the account is
+        actually set up; here all that is needed is to know whose stream this is, so
+        it is one line: the picture, the name and the handle.
         """
+
+        card = QFrame()
+        card.setObjectName("card")
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        row = QHBoxLayout(card)
+        row.setContentsMargins(14, 8, 14, 8)
+        row.setSpacing(10)
+
+        self.account_avatar = AvatarLabel(26)
+        self.account_avatar.set_username("")
+        row.addWidget(self.account_avatar, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.account_name = QLabel("Sin cuenta")
+        self.account_name.setObjectName("profileName")
+        row.addWidget(self.account_name)
+        self.account_handle = QLabel("")
+        self.account_handle.setObjectName("muted")
+        row.addWidget(self.account_handle)
+        row.addStretch(1)
+        return card
+
+    def _profile_header(self, *, account: bool) -> QFrame:
+        """Build the full account header. Only the account page shows it."""
 
         header = QFrame()
         header.setObjectName("card")
         header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(14, 12, 14, 12)
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(8)
 
         card = ProfileCard()
         header_layout.addWidget(card)
@@ -661,7 +703,7 @@ class WindowUiMixin:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         tokens = color_tokens(current_theme())
 
         layout.addWidget(self._profile_header(account=True))
