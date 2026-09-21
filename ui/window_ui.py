@@ -87,6 +87,17 @@ GUIDE_STEPS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+# The same advice the help dialog gives, in the place where the account is set up —
+# which is exactly where it is needed. Deliberately short: each line is height the
+# window must add, and the full wording is still in «Más» → «Ayuda».
+ANTES_DEL_DIRECTO: tuple[str, ...] = (
+    "Solicita el acceso a TikTok LIVE a través de Streamlabs: se pide aparte.",
+    "Carga el token con «Iniciar sesión web» y comprueba la cuenta: tiene que decir "
+    "«Puede emitir: Sí».",
+    "Guarda el token de forma segura para no repetir el login, y ya puedes preparar el "
+    "directo desde la otra pantalla.",
+)
+
 LOGGER = logging.getLogger(__name__)
 
 # The suggestion list has no content-based height, so it gets an explicit one.
@@ -341,6 +352,42 @@ class WindowUiMixin:
         layout.addWidget(heading)
         return card, layout
 
+    def _steps_card(
+        self,
+        title: str,
+        steps: tuple[str, ...],
+        *,
+        intro: str = "",
+    ) -> QFrame:
+        """Build a card of numbered instructions, one per line.
+
+        The account page is shorter than the stream page, and the window is as tall
+        as the taller of the two, so the space under its last button used to be a
+        block of empty background. This fills it with the guidance that otherwise
+        only existed behind «Más» → «Ayuda»: the same information, where it is
+        actually read.
+        """
+
+        card, layout = self._card(title)
+        if intro:
+            lead = QLabel(intro)
+            lead.setObjectName("muted")
+            lead.setWordWrap(True)
+            layout.addWidget(lead)
+        for number, text in enumerate(steps, start=1):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            mark = QLabel(f"{number}.")
+            mark.setObjectName("guideMark")
+            mark.setFixedWidth(18)
+            mark.setProperty("state", "current")
+            row.addWidget(mark, 0, Qt.AlignmentFlag.AlignTop)
+            label = QLabel(text)
+            label.setWordWrap(True)
+            row.addWidget(label, 1)
+            layout.addLayout(row)
+        return card
+
     @staticmethod
     def _field_label(text: str, buddy: QWidget | None = None) -> QLabel:
         label = QLabel(text)
@@ -434,10 +481,11 @@ class WindowUiMixin:
         actions.addWidget(self.save_btn, 1)
         layout.addLayout(actions)
 
-        # The real state of the broadcast, with its own clock. It is separate from
-        # the summary because it changes on its own, with the user doing nothing,
-        # and a value that moves by itself needs somewhere the eye returns to.
-        live_card, live_layout = self._card("Estado del directo")
+        # The real state of the broadcast gets its own row rather than its own card.
+        # It changes on its own, with the user doing nothing, so it needs somewhere
+        # the eye returns to — but a whole card for one line cost 134 px, and the
+        # window is exactly as tall as its content, so those 134 px were the
+        # difference between the page fitting and the page scrolling.
         live_row = QHBoxLayout()
         live_row.setSpacing(10)
         self.live_state_badge = QLabel("Sin sesión")
@@ -449,15 +497,10 @@ class WindowUiMixin:
         self.live_elapsed.setVisible(False)
         live_row.addWidget(self.live_elapsed)
         live_row.addStretch(1)
-        live_layout.addLayout(live_row)
-        self.live_hint = QLabel(
-            "Cambia solo: mientras la sesión esté abierta, la aplicación vigila el "
-            "directo y avisa en cuanto OBS empieza a enviar."
-        )
+        self.live_hint = QLabel("Se actualiza solo mientras la sesión está abierta")
         self.live_hint.setObjectName("muted")
-        self.live_hint.setWordWrap(True)
-        live_layout.addWidget(self.live_hint)
-        layout.addWidget(live_card)
+        live_row.addWidget(self.live_hint)
+        layout.addLayout(live_row)
 
         # What decides whether the stream can be prepared, answered in one line so
         # the account page does not have to be opened to find out.
@@ -714,6 +757,19 @@ class WindowUiMixin:
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+        # The account page is the short one, and the window is as tall as the taller
+        # page, so this is the space that used to be empty background. It holds the
+        # guidance that was only reachable from the «Más» menu — kept to three lines
+        # on purpose: every line here is height the window has to add, and a page
+        # taller than the window scrolls, which is worse than a shorter explanation.
+        layout.addWidget(
+            self._steps_card(
+                "Antes del primer directo",
+                ANTES_DEL_DIRECTO,
+                intro="Lo que hace falta para poder emitir.",
+            )
+        )
 
         back_row = QHBoxLayout()
         self.back_btn = QPushButton("Volver al directo")

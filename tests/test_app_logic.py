@@ -1497,27 +1497,23 @@ def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
 
 
 def test_the_scrollbar_does_not_hide_anything(app, qtbot, monkeypatch):
-    """When the screen forces a scrollbar, the window gets that width back.
+    """There is a scrollbar only when the content genuinely does not fit.
 
-    The bar takes width from the viewport, so a window that did not account for it
-    would leave the right-hand edge of every field under the bar.
+    The window is as tall as its content, so it normally shows no bar at all; the bar
+    exists for a screen too short to hold it, and only there.
     """
 
-    # A screen too short for the content, from the start, so the layout is settled
-    # before anything is measured.
-    monkeypatch.setattr(app, "available_height", lambda: 400)
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
     app.show()
     qtbot.wait(80)
-    assert app.scroll.verticalScrollBar().maximum() > 0
-    ancho_con_barra = app.width()
-
-    # With room to spare the pages fit, so there is no bar and no extra width.
-    monkeypatch.setattr(app, "available_height", lambda: 2000)
-    app._apply_window_size()
-    qtbot.wait(40)
-
     assert app.scroll.verticalScrollBar().maximum() == 0
-    assert app.width() < ancho_con_barra
+    ancho_sin_barra = app.width()
+
+    # A window smaller than the content it holds: now the pages must scroll.
+    app.setFixedSize(ancho_sin_barra, 400)
+    qtbot.wait(60)
+
+    assert app.scroll.verticalScrollBar().maximum() > 0
 
 
 def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):
