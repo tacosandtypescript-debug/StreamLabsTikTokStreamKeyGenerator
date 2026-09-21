@@ -139,7 +139,10 @@ class WindowUiMixin:
         central.setObjectName("central")
         self.setCentralWidget(central)
         outer = QVBoxLayout(central)
-        outer.setContentsMargins(OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, 8)
+        # The bottom margin is the breathing room under the last element of a page —
+        # «Volver al directo» on the account page — before the status bar. 16 px read
+        # as cramped against it; this lands the gap at about 24.
+        outer.setContentsMargins(OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, 16)
         outer.setSpacing(10)
 
         self.banner = StateBanner()
