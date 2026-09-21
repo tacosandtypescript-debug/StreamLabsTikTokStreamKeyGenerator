@@ -1493,23 +1493,44 @@ def test_asking_for_the_account_data_refreshes_the_numbers_too(app, monkeypatch)
 # --------------------------------------------------------------------------- #
 
 
+def _page_body(app, index: int = 0):
+    """Return the scrolling body of a page: the panel that holds the content."""
+
+    from PySide6.QtWidgets import QScrollArea
+
+    return app.pages.widget(index).findChild(QScrollArea, "pageBody")
+
+
 def test_a_tall_window_stops_at_the_screen_and_scrolls(app, qtbot, monkeypatch):
-    # A 1080p laptop at 150% leaves about 690 logical pixels; before this the window
-    # simply hung off the bottom of the screen and nothing could be done about it.
+    """A window too small for its content scrolls inside, and keeps its buttons.
+
+    This is the case that matters: on a short screen the content cannot fit, and the
+    answer must be a panel that scrolls — never a page that grows and takes «Preparar
+    directo» off the bottom with it.
+    """
+
     monkeypatch.setattr(app, "available_height", lambda: 400)
-
     app._apply_window_size()
-    # The minimum is a fixed floor, not the measured content, so a short screen can
-    # always be answered by shrinking the window rather than by hanging off the edge.
-    assert app.minimumHeight() <= 380
-    # Short of room, the pages scroll instead of the cards being squeezed into one
-    # another: the content is taller than the viewport it was given.
-    app.setMaximumHeight(380)
     app.show()
-    qtbot.waitUntil(lambda: app.scroll.verticalScrollBar().maximum() > 0, timeout=3000)
+    qtbot.wait(150)
 
-    assert app.height() == 380
-    assert app.pages.height() > app.scroll.viewport().height()
+    assert app.height() <= 400
+    body = _page_body(app)
+    assert body is not None
+    qtbot.waitUntil(lambda: body.verticalScrollBar().maximum() > 0, timeout=3000)
+
+
+def test_the_actions_stay_reachable_however_long_the_content_is(app, qtbot, monkeypatch):
+    """The footer is not part of what scrolls, so it cannot be scrolled away."""
+
+    monkeypatch.setattr(app, "available_height", lambda: 400)
+    app._apply_window_size()
+    app.show()
+    qtbot.wait(150)
+
+    for button in (app.go_live_btn, app.end_live_btn, app.save_btn, app.account_btn):
+        bottom = button.mapTo(app, button.rect().bottomLeft()).y()
+        assert bottom <= app.height(), f"{button.text()} queda fuera de la ventana"
 
 
 def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
@@ -1519,28 +1540,31 @@ def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
     app.show()
     qtbot.wait(150)
 
-    assert app.scroll.verticalScrollBar().maximum() == 0
+    body = _page_body(app)
+    assert body is not None
+    assert body.verticalScrollBar().maximum() == 0
     assert app.height() > 380
 
 
 def test_the_scrollbar_does_not_hide_anything(app, qtbot, monkeypatch):
     """There is a scrollbar only when the content genuinely does not fit.
 
-    The window is as tall as its content, so it normally shows no bar at all; the bar
-    exists for a screen too short to hold it, and only there.
+    The window is as tall as its content, so it normally shows no bar at all; the
+    bar exists for a window too small to hold it, and only there.
     """
 
     monkeypatch.setattr(app, "available_height", lambda: 2000)
     app.show()
     qtbot.wait(80)
-    assert app.scroll.verticalScrollBar().maximum() == 0
-    ancho_sin_barra = app.width()
+    body = _page_body(app)
+    assert body is not None
+    assert body.verticalScrollBar().maximum() == 0
 
-    # A window smaller than the content it holds: now the pages must scroll.
-    app.setFixedSize(ancho_sin_barra, 400)
-    qtbot.wait(60)
+    # A window smaller than the content it holds: now the panel must scroll.
+    app.setFixedSize(app.width(), 400)
+    qtbot.wait(80)
 
-    assert app.scroll.verticalScrollBar().maximum() > 0
+    assert body.verticalScrollBar().maximum() > 0
 
 
 def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):

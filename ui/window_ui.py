@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
@@ -321,12 +322,32 @@ class WindowUiMixin:
 
     @staticmethod
     def _page_height(page: QWidget, width: int) -> int:
-        """Return how tall a page wants to be when it is ``width`` wide."""
+        """Return how tall a page wants to be when it is ``width`` wide.
 
-        layout = page.layout()
+        The page's own layout cannot answer this any more: it holds a scroll area,
+        whose whole purpose is to be shorter than what it contains, so asking the
+        layout for its height returns the floor rather than what the content needs.
+        The number that matters is the height of what is *inside* the scroll area,
+        plus the fixed footer of actions underneath it.
+        """
+
+        body = page.findChild(QScrollArea, "pageBody")
+        frame = page.findChild(QWidget, "actionBar")
+        footer = frame.sizeHint().height() if frame is not None else 0
+
+        if body is None:  # pragma: no cover - every page has one
+            layout = page.layout()
+            if layout is not None and layout.hasHeightForWidth():
+                return layout.heightForWidth(width) + footer
+            return page.sizeHint().height()
+
+        inner = body.widget()
+        if inner is None:  # pragma: no cover - the body is set when it is built
+            return page.sizeHint().height()
+        layout = inner.layout()
         if layout is not None and layout.hasHeightForWidth():
-            return layout.heightForWidth(width)
-        return page.sizeHint().height()
+            return layout.heightForWidth(width) + footer
+        return inner.sizeHint().height() + footer
 
     def _chrome_height(self) -> int:
         """Return the height of everything that is not the scrolling pages."""
@@ -435,76 +456,38 @@ class WindowUiMixin:
 
     def _build_stream_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
 
         # Every icon is drawn in the colour of the theme it is drawn for, so the
         # tokens are read once, here, rather than inside each helper.
         tokens = color_tokens(current_theme())
 
+        # The page is a column: everything that can grow goes into a body that
+        # scrolls, and the actions stay at the bottom where they can always be
+        # reached. Letting the content push the window taller is what put «Preparar
+        # directo» off the bottom of the screen — the one button the page exists for.
+        layout, body = self._page_shell(page)
+
         # The account header first: who this is about, before what to do with it.
         # One line with the account, not the whole profile card: the window is
         # exactly as tall as its content, and the card is 176 px of it.
-        layout.addWidget(self._account_line())
+        body.addWidget(self._account_line())
 
         # And then what to do. Everything below is a form, and a form is impossible
         # to start when nobody says which field matters first or how far along you
         # are. It disappears by itself once the directo is prepared.
         self.guide = StepsGuide(GUIDE_STEPS)
         self.guide.dismissed.connect(self.hide_guide)
-        layout.addWidget(self.guide)
+        body.addWidget(self.guide)
 
         # One column, everything stacked: the window is narrow and tall, which is
         # the shape that sits beside OBS and the shape the second page already has.
-        layout.addWidget(self._stream_details_card(tokens))
-        layout.addWidget(self._connection_card(tokens))
-
-        # Phone-shaped window: three buttons do not fit on one line, so the main
-        # action gets the full width — which is also the one thing the user came
-        # here to press — and the other two share the line below it.
-        self.go_live_btn = QPushButton("Preparar directo")
-        self.go_live_btn.setObjectName("primary")
-        self.go_live_btn.setIcon(play_icon(16, tokens["primaryText"]))
-        self.go_live_btn.setIconSize(QSize(16, 16))
-        self.go_live_btn.setToolTip(
-            "Pide a Streamlabs que prepare la sesión y devuelve la URL y la clave"
-        )
-        self.go_live_btn.setEnabled(False)
-        self.go_live_btn.clicked.connect(lambda _checked=False: self.start_stream())
-        layout.addWidget(self.go_live_btn)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
-
-        self.end_live_btn = QPushButton("Finalizar directo")
-        # The one action that throws work away, so it wears the other signature
-        # colour instead of looking like every other button.
-        self.end_live_btn.setObjectName("danger")
-        self.end_live_btn.setIcon(stop_icon(16, tokens["danger"]))
-        self.end_live_btn.setIconSize(QSize(16, 16))
-        self.end_live_btn.setToolTip(
-            "Detén primero la salida de TikTok en OBS y después cierra la sesión de Streamlabs"
-        )
-        self.end_live_btn.setEnabled(False)
-        self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
-        actions.addWidget(self.end_live_btn, 1)
-
-        self.save_btn = QPushButton("Guardar ajustes")
-        self.save_btn.setIcon(save_icon(16, tokens["text"]))
-        self.save_btn.setIconSize(QSize(16, 16))
-        self.save_btn.setToolTip(
-            "Guarda el título, la categoría y las preferencias (sin secretos)"
-        )
-        self.save_btn.clicked.connect(lambda _checked=False: self.save_config())
-        actions.addWidget(self.save_btn, 1)
-        layout.addLayout(actions)
+        body.addWidget(self._stream_details_card(tokens))
+        body.addWidget(self._connection_card(tokens))
 
         # The real state of the broadcast gets its own row rather than its own card.
         # It changes on its own, with the user doing nothing, so it needs somewhere
-        # the eye returns to — but a whole card for one line cost 134 px, and the
-        # window is exactly as tall as its content, so those 134 px were the
-        # difference between the page fitting and the page scrolling.
+        # the eye returns to — but a whole card for one line cost 134 px on a window
+        # that has to hold everything else too.
         live_row = QHBoxLayout()
         live_row.setSpacing(10)
         self.live_state_badge = QLabel("Sin sesión")
@@ -519,7 +502,7 @@ class WindowUiMixin:
         self.live_hint = QLabel("Se actualiza solo mientras la sesión está abierta")
         self.live_hint.setObjectName("muted")
         live_row.addWidget(self.live_hint)
-        layout.addLayout(live_row)
+        body.addLayout(live_row)
 
         # What decides whether the stream can be prepared, answered in one line so
         # the account page does not have to be opened to find out.
@@ -530,11 +513,49 @@ class WindowUiMixin:
                 ("session", "Sesión"),
             )
         )
-        layout.addWidget(self.summary)
+        body.addWidget(self.summary)
+        body.addStretch(1)
 
-        # The link to the account page sits at the bottom, so the space the taller
-        # page forces on this one reads as a footer instead of a gap.
-        layout.addStretch(1)
+        # ---- the fixed footer: the actions, always reachable ----
+        _bar, actions = self._action_bar(layout)
+        self.go_live_btn = QPushButton("Preparar directo")
+        self.go_live_btn.setObjectName("primary")
+        self.go_live_btn.setIcon(play_icon(16, tokens["primaryText"]))
+        self.go_live_btn.setIconSize(QSize(16, 16))
+        self.go_live_btn.setToolTip(
+            "Pide a Streamlabs que prepare la sesión y devuelve la URL y la clave"
+        )
+        self.go_live_btn.setEnabled(False)
+        self.go_live_btn.clicked.connect(lambda _checked=False: self.start_stream())
+        actions.addWidget(self.go_live_btn)
+
+        secondary = QHBoxLayout()
+        secondary.setSpacing(8)
+        self.end_live_btn = QPushButton("Finalizar directo")
+        # The one action that throws work away, so it wears the other signature
+        # colour instead of looking like every other button.
+        self.end_live_btn.setObjectName("danger")
+        self.end_live_btn.setIcon(stop_icon(16, tokens["danger"]))
+        self.end_live_btn.setIconSize(QSize(16, 16))
+        self.end_live_btn.setToolTip(
+            "Detén primero la salida de TikTok en OBS y después cierra la sesión de Streamlabs"
+        )
+        self.end_live_btn.setEnabled(False)
+        self.end_live_btn.clicked.connect(lambda _checked=False: self.end_stream())
+        secondary.addWidget(self.end_live_btn, 1)
+
+        self.save_btn = QPushButton("Guardar ajustes")
+        self.save_btn.setIcon(save_icon(16, tokens["text"]))
+        self.save_btn.setIconSize(QSize(16, 16))
+        self.save_btn.setToolTip(
+            "Guarda el título, la categoría y las preferencias (sin secretos)"
+        )
+        self.save_btn.clicked.connect(lambda _checked=False: self.save_config())
+        secondary.addWidget(self.save_btn, 1)
+        actions.addLayout(secondary)
+
+        # The link to the account page travels with the actions: it is navigation, and
+        # navigation should never be something you have to scroll to find.
         self.account_btn = QPushButton("Cuenta y token")
         self.account_btn.setObjectName("link")
         self.account_btn.setIcon(user_icon(16, tokens["primary"]))
@@ -542,8 +563,65 @@ class WindowUiMixin:
         self.account_btn.setToolTip("Token de Streamlabs, usuario y permiso de emisión")
         self.account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.account_btn.clicked.connect(self.show_account_page)
-        layout.addWidget(self.account_btn)
+        actions.addWidget(self.account_btn)
         return page
+
+    def _page_shell(self, page: QWidget) -> tuple[QVBoxLayout, QVBoxLayout]:
+        """Split a page into a scrolling body and a fixed footer for its actions.
+
+        The window can only be as tall as the screen, so a page whose content grows
+        past that has to scroll *inside itself*: if the whole page grew instead, the
+        buttons at the bottom would be pushed off the screen with no way to reach
+        them. The body takes every pixel left over and gives it back by scrolling —
+        which is what ``min-height: 0`` means in the flex model this mirrors — and the
+        footer keeps the height its buttons ask for.
+
+        Returns the page's own layout and the layout to put the growing content in.
+        """
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+
+        area = QScrollArea()
+        area.setObjectName("pageBody")
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Without this the area claims the height of its content and the page grows
+        # again, which is exactly the overflow this exists to prevent.
+        area.setMinimumHeight(0)
+        area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        inner = QWidget()
+        inner.setObjectName("pageBodyInner")
+        body = QVBoxLayout(inner)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(8)
+        area.setWidget(inner)
+        outer.addWidget(area, 1)
+        return outer, body
+
+    def _action_bar(
+        self, page_layout: QVBoxLayout | None = None
+    ) -> tuple[QWidget, QVBoxLayout]:
+        """Build a footer that keeps its height, so its buttons are never pushed away.
+
+        Returning the bar as well as its layout is what makes it possible to add it
+        to the page: a layout on its own has no widget to put anywhere, and the first
+        version of this forgot to, so the buttons were built and never shown.
+        """
+
+        bar = QWidget()
+        bar.setObjectName("actionBar")
+        bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        if page_layout is not None:
+            page_layout.addWidget(bar)
+        return bar, layout
 
     def _stream_details_card(self, tokens: dict[str, str]) -> QFrame:
         """What the stream is: its title, its category and who it is for."""
@@ -704,12 +782,12 @@ class WindowUiMixin:
 
     def _build_account_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        # Same shape as the stream page: what can grow scrolls, what must always be
+        # reachable — «Volver al directo» — stays in a footer.
+        layout, body = self._page_shell(page)
         tokens = color_tokens(current_theme())
 
-        layout.addWidget(self._profile_header(account=True))
+        body.addWidget(self._profile_header(account=True))
 
         token_card, token_layout = self._card("Cuenta de Streamlabs")
         self.token_entry = QLineEdit()
@@ -774,7 +852,7 @@ class WindowUiMixin:
         )
         self.save_token_btn.clicked.connect(lambda _checked=False: self.save_token_securely())
         token_layout.addWidget(self.save_token_btn)
-        layout.addWidget(token_card)
+        body.addWidget(token_card)
 
         account_card, account_layout = self._card("Permiso de emisión")
         live_row = QHBoxLayout()
@@ -794,38 +872,35 @@ class WindowUiMixin:
         self.account_state.setObjectName("muted")
         self.account_state.setWordWrap(True)
         account_layout.addWidget(self.account_state)
-        layout.addWidget(account_card)
+        body.addWidget(account_card)
 
         hint = QLabel(
             "El token se guarda cifrado en el almacén del sistema, nunca en config.json."
         )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
-        layout.addWidget(hint)
+        body.addWidget(hint)
 
-        # The account page is the short one, and the window is as tall as the taller
-        # page, so this is the space that used to be empty background. It holds the
-        # guidance that was only reachable from the «Más» menu — kept to three lines
-        # on purpose: every line here is height the window has to add, and a page
-        # taller than the window scrolls, which is worse than a shorter explanation.
-        layout.addWidget(
+        # The guidance that was only reachable from the «Más» menu, where the account
+        # is actually set up. It scrolls with the rest: it is reading, not acting.
+        body.addWidget(
             self._steps_card(
                 "Antes del primer directo",
                 ANTES_DEL_DIRECTO,
                 intro="Lo que hace falta para poder emitir.",
             )
         )
+        body.addStretch(1)
 
-        back_row = QHBoxLayout()
+        # ---- the fixed footer: getting back is navigation, and navigation must never
+        # be something you have to scroll to find ----
+        _bar, actions = self._action_bar(layout)
         self.back_btn = QPushButton("Volver al directo")
         self.back_btn.setIcon(play_icon(16, tokens["text"]))
         self.back_btn.setIconSize(QSize(16, 16))
         self.back_btn.setToolTip("Vuelve a la pantalla del directo")
         self.back_btn.clicked.connect(self.show_stream_page)
-        back_row.addWidget(self.back_btn)
-        back_row.addStretch(1)
-        layout.addLayout(back_row)
-        layout.addStretch(1)
+        actions.addWidget(self.back_btn)
         return page
 
     def _build_status_bar(self) -> None:
