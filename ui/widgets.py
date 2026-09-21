@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
@@ -575,6 +576,95 @@ class ProfileCard(QWidget):
 
     def bio_text(self) -> str:
         return self.bio_label.text()
+
+
+class StepsGuide(QFrame):
+    """A short, numbered list of what to do, with the step you are on marked.
+
+    The application used to open on a screen full of fields — token, permission,
+    category, OBS — with nothing saying which of them mattered first or how far along
+    the user was. Someone opening it for the first time could not tell whether they
+    were missing a step or doing it wrong.
+
+    Every step here is answered by state the window already holds, so the guide
+    cannot claim a step is done when it is not: the tick comes from the same values
+    that enable the buttons.
+    """
+
+    dismissed = Signal()
+
+    def __init__(self, steps: Sequence[tuple[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("guide")
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(8)
+        heading = QLabel("Primeros pasos", self)
+        heading.setObjectName("guideTitle")
+        heading_row.addWidget(heading)
+        heading_row.addStretch(1)
+        self.hide_btn = QPushButton("Ocultar", self)
+        self.hide_btn.setObjectName("link")
+        self.hide_btn.setToolTip("Oculta esta guía; puedes volver a verla desde «Más» → «Ayuda»")
+        self.hide_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hide_btn.clicked.connect(self.dismissed.emit)
+        heading_row.addWidget(self.hide_btn)
+        layout.addLayout(heading_row)
+
+        self._rows: list[tuple[QLabel, QLabel]] = []
+        for text, detail in steps:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            mark = QLabel(self)
+            mark.setObjectName("guideMark")
+            mark.setFixedWidth(18)
+            row.addWidget(mark, 0, Qt.AlignmentFlag.AlignTop)
+            column = QVBoxLayout()
+            column.setSpacing(1)
+            label = QLabel(text, self)
+            label.setObjectName("guideStep")
+            label.setWordWrap(True)
+            column.addWidget(label)
+            if detail:
+                hint = QLabel(detail, self)
+                hint.setObjectName("muted")
+                hint.setWordWrap(True)
+                column.addWidget(hint)
+            row.addLayout(column, 1)
+            layout.addLayout(row)
+            self._rows.append((mark, label))
+
+    def set_progress(self, index: int) -> None:
+        """Mark every step up to ``index`` as done and ``index`` as the one to do.
+
+        ``index`` equal to the number of steps means everything is done. Passing
+        ``-1`` leaves every step untouched, which is what "cannot tell yet" looks
+        like — an account that has not been validated cannot be called unfinished.
+        """
+
+        for position, (mark, label) in enumerate(self._rows):
+            done = index >= 0 and position < index
+            current = index >= 0 and position == index
+            mark.setText("✓" if done else ("●" if current else "○"))
+            state = "done" if done else ("current" if current else "pending")
+            if mark.property("state") != state:
+                mark.setProperty("state", state)
+                mark.style().unpolish(mark)
+                mark.style().polish(mark)
+            if label.property("state") != state:
+                label.setProperty("state", state)
+                label.style().unpolish(label)
+                label.style().polish(label)
+
+    def step_state(self, position: int) -> str:
+        """Return the state drawn for one step, for tests and for callers."""
+
+        return str(self._rows[position][0].property("state"))
 
 
 class SummaryStrip(QFrame):

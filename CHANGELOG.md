@@ -4,6 +4,19 @@
 
 ### Añadido
 
+- **Guía de primeros pasos dentro de la aplicación.** Al abrirla por primera vez
+  aparecía una pantalla llena de campos —token, permiso, categoría, OBS— sin nada
+  que dijera cuál importaba primero ni en qué punto estabas. Ahora hay una tarjeta
+  con los cinco pasos en orden, marcando el que toca, y se aparta sola cuando el
+  directo está preparado. Cada paso se comprueba contra el mismo estado que habilita
+  los botones, así que **la guía no puede marcar como hecho algo que no lo está**;
+  una guía que miente es peor que no tener guía. Se oculta con «Ocultar» y se
+  recupera desde «Más» → «Ver la guía de primeros pasos».
+- **El motivo que da Streamlabs al denegar el permiso de emisión.** La respuesta de
+  `/info` trae un campo `reason` que se estaba descartando, así que el usuario veía
+  «Puede emitir: No» sin saber si tenía que solicitar el acceso, esperar o revisar
+  algo. Un rechazo sin motivo es lo menos útil que puede decir una pantalla.
+
 - **Presupuesto de latencia del arranque.** Cada directo anota, con la décima de
   segundo, cuándo ocurrió cada etapa desde que las credenciales estuvieron listas:
   `SESSION_CREATED`, `RTMP_READY`, `WAITING_FOR_INGEST`, `OBS_CONNECTED`,

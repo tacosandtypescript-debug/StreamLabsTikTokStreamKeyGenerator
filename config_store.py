@@ -67,6 +67,10 @@ class AppConfig:
     # Last account seen, so the window can show its name and its initial before
     # Streamlabs answers. Not an identifier and not a secret.
     last_username: str = ""
+    # Whether the first-steps guide has been dismissed. It is purely additive, so the
+    # schema version is deliberately NOT bumped: an older build ignores the field and
+    # simply shows the guide again, which is the harmless direction.
+    guide_dismissed: bool = False
     # Where the account picture comes from: "" (never decided yet), "auto" (fetched
     # from the avatar service) or "manual" (the user chose a file, and the service
     # is then never asked). ``avatar_username`` is the account the automatic one
@@ -89,6 +93,7 @@ class AppConfig:
             "window_y": self.window_y,
             "window_maximized": self.window_maximized,
             "last_username": self.last_username,
+            "guide_dismissed": self.guide_dismissed,
             "avatar_source": self.avatar_source,
             "avatar_username": self.avatar_username,
         }
@@ -222,6 +227,7 @@ def _parse_config(data: Any) -> ConfigLoadResult:
         window_y=_optional_int_value(data, "window_y"),
         window_maximized=_bool_value(data, "window_maximized", False),
         last_username=_string_value(data, "last_username"),
+        guide_dismissed=_bool_value(data, "guide_dismissed", False),
         avatar_source=_string_value(data, "avatar_source"),
         avatar_username=_string_value(data, "avatar_username"),
     )

@@ -667,6 +667,85 @@ def test_a_failed_diagnostics_export_tells_the_user(app, tmp_path, monkeypatch):
     assert warnings
 
 
+# --------------------------------------------------------------------------- #
+#  La guía de primeros pasos                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_a_first_run_shows_the_guide_from_the_first_step(app):
+    app._update_controls()
+
+    assert app.guide.isVisible() or app.guide.isVisibleTo(app)
+    assert app.guide.step_state(0) == "current"
+    assert app.guide.step_state(1) == "pending"
+
+
+def test_the_guide_marks_the_steps_already_done(app):
+    _validated(app)
+
+    app._update_controls()
+
+    # Token and account checked: the guide is now asking for the title.
+    assert app.guide.step_state(0) == "done"
+    assert app.guide.step_state(1) == "done"
+    assert app.guide.step_state(2) == "current"
+
+
+def test_the_guide_does_not_advance_past_a_refused_account(app):
+    """The account cannot broadcast: the guide stays where the problem is."""
+
+    _validated(app)
+    app._account_info = AccountInfo("creator", "approved", False)
+
+    app._update_controls()
+
+    assert app.guide.step_state(1) == "current"
+    assert app.guide.step_state(2) == "pending"
+
+
+def test_the_guide_advances_once_the_category_is_set(app):
+    _validated(app)
+    # The order the application itself uses: the text first, then the identifier the
+    # search resolved. Typing in the field clears the identifier, so setting them the
+    # other way round would be a state a real user never reaches.
+    app.game_category.setText("Fortnite")
+    app._category_id = "42"
+
+    app._update_controls()
+
+    assert app._can_start_stream() is True
+    assert app.guide.step_state(2) == "done"
+    assert app.guide.step_state(3) == "current"
+
+
+def test_a_prepared_stream_moves_the_guide_to_obs(app):
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+
+    app._update_controls()
+
+    assert app.guide.step_state(3) == "done"
+    assert app.guide.step_state(4) == "current"
+
+
+def test_hiding_the_guide_is_remembered_between_runs(app, store):
+    app.hide_guide()
+
+    assert app._guide_dismissed is True
+    assert store.load().config.guide_dismissed is True
+
+
+def test_the_guide_can_be_brought_back_from_the_menu(app):
+    app.hide_guide()
+    app._sync_guide()
+    assert app.guide.isVisible() is False
+
+    app.show_guide()
+
+    assert app._guide_dismissed is False
+    assert app.guide.isVisible() or app.guide.isVisibleTo(app)
+
+
 def test_the_more_menu_keeps_the_secondary_actions_out_of_the_way(app):
     labels = [
         action.text()
@@ -679,6 +758,7 @@ def test_the_more_menu_keeps_the_secondary_actions_out_of_the_way(app):
         "Guardar informe de diagnóstico",
         "Informar de un problema",
         "Ayuda",
+        "Ver la guía de primeros pasos",
         "Abrir monitor de TikTok",
         "Donar al autor original",
     ]

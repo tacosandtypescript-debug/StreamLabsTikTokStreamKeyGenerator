@@ -96,6 +96,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._loading_config = False
         self._secure_store_available = True
         self._legacy_migration_declined = False
+        # Whether the first-steps guide has been put away by the user.
+        self._guide_dismissed = False
         self._online_retriever: TokenRetriever | None = None
         self._pending_legacy: tuple[Path, ConfigLoadResult] | None = None
         self._account_info: AccountInfo | None = None
@@ -343,6 +345,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self.mature_checkbox.setChecked(config.audience_type == "1")
             self.suppress_donation_reminder = config.suppress_donation_reminder
             self._legacy_migration_declined = config.legacy_migration_declined
+            self._guide_dismissed = config.guide_dismissed
         finally:
             self._loading_config = False
 
@@ -392,6 +395,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             window_y=geometry.y,
             window_maximized=geometry.maximized,
             last_username=self._last_username,
+            guide_dismissed=self._guide_dismissed,
             avatar_source=self._avatar_source,
             avatar_username=self._avatar_username,
         )
@@ -1149,6 +1153,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         # which state the application is.
         self.progress.set_busy(bool(self._busy_operations))
         self._sync_account_summary()
+        self._sync_guide()
         self._refresh_banner()
 
     def _can_start_stream(self) -> bool:
@@ -1413,6 +1418,65 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             "La cuenta no tiene acceso a TikTok LIVE a través de Streamlabs. "
             "Se solicita aparte y no hacen falta 1000 seguidores."
         )
+
+    def _sync_guide(self) -> None:
+        """Mark how far along the user is, and get out of the way when they are done.
+
+        The step is derived from the same state the buttons use — the validated
+        token, the permission, the category, the session — so a tick can never say a
+        step is finished when it is not. That matters more than it sounds: a guide
+        that lies is worse than no guide.
+        """
+
+        if self._guide_hidden():
+            self.guide.setVisible(False)
+            return
+        self.guide.setVisible(True)
+
+        if self._active_session is not None:
+            # Everything up to and including preparing is done; only OBS is left.
+            self.guide.set_progress(4)
+            return
+
+        info = self._account_info
+        validated = bool(
+            info is not None
+            and self._validated_token
+            and self._validated_token == self.token_entry.text().strip()
+        )
+        if not self.token_entry.text().strip():
+            self.guide.set_progress(0)
+        elif not validated:
+            # A token is loaded but the account has not answered yet: the guide
+            # cannot call that unfinished, so it stays on the same step.
+            self.guide.set_progress(1)
+        elif not info.can_be_live:
+            # Stuck on purpose: the refusal comes with its reason next to it, and
+            # moving the guide forward would hide the thing to act on.
+            self.guide.set_progress(1)
+        elif not self._can_start_stream():
+            self.guide.set_progress(2)
+        else:
+            self.guide.set_progress(3)
+
+    def _guide_hidden(self) -> bool:
+        return self._guide_dismissed
+
+    def hide_guide(self) -> None:
+        """Hide the first-steps guide for good, and remember the choice."""
+
+        self._guide_dismissed = True
+        self.guide.setVisible(False)
+        LOGGER.info("The first-steps guide was dismissed")
+        self.save_config(False)
+
+    def show_guide(self) -> None:
+        """Bring the guide back, from «Más» → «Ayuda»."""
+
+        self._guide_dismissed = False
+        self._sync_guide()
+        self.save_config(False)
+        self._set_status("Guía de primeros pasos mostrada")
 
     def _sync_account_summary(self) -> None:
         """Say on the button who the account belongs to, without opening it."""

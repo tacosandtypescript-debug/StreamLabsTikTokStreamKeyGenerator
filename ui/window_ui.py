@@ -56,7 +56,34 @@ from ui.widgets import (
     HeightAnimator,
     ProfileCard,
     StateBanner,
+    StepsGuide,
     SummaryStrip,
+)
+
+# What a first run has to be told, in the order it has to be done. Each step is
+# checked against state the window already holds, so the guide can never tick a step
+# that is not actually done.
+GUIDE_STEPS: tuple[tuple[str, str], ...] = (
+    (
+        "Carga el token de Streamlabs",
+        "Pega el token, o consíguelo con «Iniciar sesión web».",
+    ),
+    (
+        "Comprueba la cuenta",
+        "Tiene que decir «Puede emitir: Sí». Si dice que no, ahí se explica el motivo.",
+    ),
+    (
+        "Escribe título y categoría",
+        "Elige una categoría de la lista que aparece al escribir.",
+    ),
+    (
+        "Preparar directo",
+        "La aplicación pedirá la sesión y te dará la URL y la clave.",
+    ),
+    (
+        "Pega las dos en OBS y emite",
+        "Ajustes → Emisión → Servicio: Personalizado. El estado cambia solo a EN VIVO.",
+    ),
 )
 
 # The suggestion list has no content-based height, so it gets an explicit one.
@@ -343,6 +370,13 @@ class WindowUiMixin:
 
         # The account header first: who this is about, before what to do with it.
         layout.addWidget(self._profile_header(account=False))
+
+        # And then what to do. Everything below is a form, and a form is impossible
+        # to start when nobody says which field matters first or how far along you
+        # are. It disappears by itself once the directo is prepared.
+        self.guide = StepsGuide(GUIDE_STEPS)
+        self.guide.dismissed.connect(self.hide_guide)
+        layout.addWidget(self.guide)
 
         # One column, everything stacked: the window is narrow and tall, which is
         # the shape that sits beside OBS and the shape the second page already has.
@@ -706,6 +740,7 @@ class WindowUiMixin:
         menu.addAction("Informar de un problema", self.report_problem)
         menu.addSeparator()
         self.help_btn = menu.addAction("Ayuda", self.show_help)
+        self.guide_btn = menu.addAction("Ver la guía de primeros pasos", self.show_guide)
         self.monitor_btn = menu.addAction("Abrir monitor de TikTok", self.open_live_monitor)
         self.donate_btn = menu.addAction("Donar al autor original", self.open_donation_page)
         self.support_btn.setMenu(menu)

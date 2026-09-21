@@ -310,6 +310,22 @@ def stylesheet(theme: str) -> str:
     QLabel#liveState[state="error"] {{ color: {t["error"]}; }}
     QLabel#liveElapsed {{ color: {t["muted"]}; font-size: 15px; font-weight: 600; }}
 
+    /* The first-steps guide: a card that reads as an instruction and not as another
+       section of the form, with the step in hand marked by colour. */
+    QFrame#guide {{
+        background: {t["card"]};
+        border: 1px solid {t["border"]};
+        border-left: 4px solid {t["link"]};
+        border-radius: 12px;
+    }}
+    QLabel#guideTitle {{ font-weight: 700; font-size: 14px; }}
+    QLabel#guideMark {{ color: {t["disabled"]}; font-size: 14px; font-weight: 700; }}
+    QLabel#guideMark[state="current"] {{ color: {t["link"]}; }}
+    QLabel#guideMark[state="done"] {{ color: {t["ok"]}; }}
+    QLabel#guideStep {{ font-weight: 500; }}
+    QLabel#guideStep[state="current"] {{ font-weight: 700; }}
+    QLabel#guideStep[state="done"] {{ color: {t["muted"]}; }}
+
     QLabel#badge {{ color: {t["muted"]}; font-weight: 600; }}
     QLabel#badge[state="ok"] {{ color: {t["ok"]}; }}
     QLabel#badge[state="warn"] {{ color: {t["warn"]}; }}
