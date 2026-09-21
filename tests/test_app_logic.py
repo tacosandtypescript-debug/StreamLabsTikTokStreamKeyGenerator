@@ -9,6 +9,7 @@ import time
 import zipfile
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QColor, QImage, QShortcut
 from PySide6.QtWidgets import QLabel
 
@@ -569,13 +570,26 @@ def test_a_silent_validation_never_pops_the_renewal_dialog(app, qtbot, monkeypat
 
 
 def test_the_window_position_survives_a_restart(app, store, qtbot):
+    """Where the window was is where it comes back.
+
+    The assertion is against what was *stored*, not against the coordinates that
+    were requested: Qt reports a window's geometry already offset by its frame, so
+    asking for (60, 40) stores (62, 42) and restoring that lands in exactly the same
+    place on screen. Comparing with the request would be comparing with a different
+    thing.
+    """
+
     app.move(60, 40)
     assert app.save_config(False) is True
+    stored = app.config_store.load().config
 
     second = StreamApp(config_store=store, token_store=app.token_store)
     qtbot.addWidget(second)
 
-    assert (second.x(), second.y()) == (60, 40)
+    assert (second.x(), second.y()) == (stored.window_x, stored.window_y)
+    # And it is the position that was asked for, allowing for the frame.
+    assert abs(second.x() - 60) <= 4
+    assert abs(second.y() - 40) <= 4
 
 
 def test_a_remembered_position_with_no_screen_left_is_ignored(app, store, qtbot):
@@ -935,36 +949,40 @@ def test_both_pages_can_be_reached(app):
     assert app.current_page() == PAGE_STREAM
 
 
-def test_the_window_is_sized_by_its_content_and_not_by_the_user(app):
-    """Fixed: exactly as big as what it has to show.
+def test_the_window_cannot_be_resized_by_hand(app):
+    """Fixed: dragging an edge does nothing, and there is no maximize button.
 
-    It is not something to be resized by hand — it fits itself, and it grows on its
-    own when the content grows.
+    It is exactly as big as what it has to show, and it is the content — never the
+    user — that decides the size.
     """
 
-    assert app.minimumSize().width() < app.maximumSize().width()
-    # Phone-shaped: narrow and tall, so it can sit beside OBS.
+    assert app.minimumSize() == app.maximumSize()
+    assert app.minimumWidth() == app.maximumWidth()
+    assert app.minimumHeight() == app.maximumHeight()
+    # Phone-shaped, so it can sit beside OBS, and never narrower than the fields
+    # need to stay readable.
     assert app.width() >= 430
-    # Never narrower than the fields need to stay readable.
-    assert app.minimumWidth() >= 430
+    assert not (app.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint)
 
 
-def test_the_window_fits_itself_to_the_content(app, qtbot, monkeypatch):
-    """Fixed size, set by the content and not by the user.
-
-    The window is not something to be sized: it is exactly as big as what it shows.
-    """
+def test_asking_for_another_size_changes_nothing(app, qtbot, monkeypatch):
+    """Whatever is requested, the window stays the size its content asks for."""
 
     monkeypatch.setattr(app, "available_height", lambda: 2000)
     app.show()
     qtbot.wait(80)
+    # Let the layout settle before recording what "its size" is: the first pass can
+    # still be running while the labels wrap.
+    app._apply_window_size()
+    qtbot.wait(40)
     fitted = (app.width(), app.height())
 
-    # Whatever the user does to the frame, the next measurement puts it back.
     app.resize(900, 400)
     app._apply_window_size()
+    qtbot.wait(30)
 
     assert (app.width(), app.height()) == fitted
+    assert app.minimumSize() == app.maximumSize()
 
 
 def test_the_window_grows_when_the_content_grows(app, qtbot, monkeypatch):
@@ -988,14 +1006,15 @@ def test_the_window_grows_when_the_content_grows(app, qtbot, monkeypatch):
     qtbot.wait(40)
 
     assert app.height() > before
+    # And it is still locked at the new size, not merely set to it.
+    assert app.minimumSize() == app.maximumSize()
 
 
 def test_showing_the_window_again_does_not_change_its_size(app, qtbot, monkeypatch):
     """Qt sends ``showEvent`` again when a window is restored from the taskbar.
 
-    The initial sizing used to run on every one of those, so the window snapped
-    back to its size some seconds after the user had resized it — which looked like
-    the window growing on its own.
+    The initial sizing used to run on every one of those, which snapped the window
+    back to its size and looked like the window resizing itself.
     """
 
     monkeypatch.setattr(app, "available_height", lambda: 2000)
@@ -1484,18 +1503,21 @@ def test_the_scrollbar_does_not_hide_anything(app, qtbot, monkeypatch):
     would leave the right-hand edge of every field under the bar.
     """
 
-    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    # A screen too short for the content, from the start, so the layout is settled
+    # before anything is measured.
+    monkeypatch.setattr(app, "available_height", lambda: 400)
     app.show()
     qtbot.wait(80)
-    ancho_sin_barra = app.width()
+    assert app.scroll.verticalScrollBar().maximum() > 0
+    ancho_con_barra = app.width()
 
-    # A screen too short for the content: the pages must scroll, so the bar appears.
-    monkeypatch.setattr(app, "available_height", lambda: 400)
+    # With room to spare the pages fit, so there is no bar and no extra width.
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
     app._apply_window_size()
     qtbot.wait(40)
 
-    assert app.scroll.verticalScrollBar().maximum() > 0
-    assert app.width() > ancho_sin_barra
+    assert app.scroll.verticalScrollBar().maximum() == 0
+    assert app.width() < ancho_con_barra
 
 
 def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):

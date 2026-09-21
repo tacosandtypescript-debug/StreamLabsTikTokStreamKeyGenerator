@@ -130,10 +130,10 @@ def _window_facts(window: Any) -> SelfCheckReport:
     )
     report.add(
         CheckResult(
-            "Ventana redimensionable",
-            window.minimumSize() != window.maximumSize()
+            "Ventana de tamaño fijo",
+            window.minimumSize() == window.maximumSize()
             and window.minimumWidth() >= MINIMUM_USABLE_SIDE,
-            f"mínimo {window.minimumSize().width()}x{window.minimumSize().height()}",
+            f"fijada en {window.width()}x{window.height()}",
         )
     )
 

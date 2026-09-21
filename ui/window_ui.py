@@ -14,6 +14,7 @@ same window, reached with one button and a fade.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt
@@ -86,6 +87,8 @@ GUIDE_STEPS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+LOGGER = logging.getLogger(__name__)
+
 # The suggestion list has no content-based height, so it gets an explicit one.
 SUGGESTIONS_HEIGHT = 120
 PAGE_STREAM = 0
@@ -94,11 +97,7 @@ OUTER_MARGIN = 12
 # Phone-shaped: narrow and tall, the way the account page already was. Narrower than
 # this and the URL field starts hiding the address and the summary columns crowd each
 # other; wider and it stops sitting comfortably beside OBS.
-MINIMUM_CONTENT_WIDTH = 430
-# The shortest the window may be made: below this the banner, the status bar and a
-# sliver of the page would be all that is left. Deliberately *not* derived from the
-# measured content, so that the window can always be shrunk and the pages scroll.
-MINIMUM_WINDOW_HEIGHT = 360
+WINDOW_WIDTH = 430
 # QWidget's "no limit", used while measuring the window again.
 UNLIMITED_SIZE = 16777215
 
@@ -106,8 +105,17 @@ UNLIMITED_SIZE = 16777215
 class WindowUiMixin:
     def init_ui(self) -> None:
         self.setWindowTitle("Generador de clave de TikTok Live (vía Streamlabs)")
-        # Resizable: the maximize button is left in place on purpose, because a
-        # user who wants the window out of the way can now do something about it.
+        # Fixed size: there is nothing to arrange and nothing to stretch, so the
+        # window has no reason to be resized or maximized. Both hints are dropped,
+        # not just the maximize button: while either of them is present Windows keeps
+        # the thick resize frame, and dragging an edge then shows the resize cursor
+        # and lets the frame be pulled about even though the size snaps back. What
+        # the user sees is a window that pretends to be resizable and is not.
+        self.setWindowFlags(
+            self.windowFlags()
+            & ~Qt.WindowType.WindowMaximizeButtonHint
+            & ~Qt.WindowType.WindowMinMaxButtonsHint
+        )
         icon = application_icon()
         if icon is not None:
             self.setWindowIcon(icon)
@@ -230,11 +238,12 @@ class WindowUiMixin:
         self.pages.setMinimumHeight(0)
         outer = self.centralWidget().layout()
         margins = outer.contentsMargins()
-        inner_width = max(
-            self.pages.sizeHint().width(),
-            MINIMUM_CONTENT_WIDTH - margins.left() - margins.right(),
-        )
-        width = max(inner_width + margins.left() + margins.right(), MINIMUM_CONTENT_WIDTH)
+        # The width is a constant, not a measurement. Measuring it meant asking the
+        # pages for the width they would *like*, which is their preferred layout and
+        # drifts with the content — the window came out 430 or 600 or something else
+        # depending on what was on screen. The height is what genuinely depends on
+        # the content, so the height is what gets measured.
+        inner_width = WINDOW_WIDTH - margins.left() - margins.right()
 
         # Each page is measured while it is the one on screen: a hidden page has not
         # wrapped its labels yet and would answer short, which made the window change
@@ -250,32 +259,26 @@ class WindowUiMixin:
             if page is not None:
                 heights.append(self._page_height(page, inner_width))
         self.pages.setCurrentIndex(current)
-        content_height = max(heights)
-        return width, content_height + self._chrome_height()
+        return WINDOW_WIDTH, max(heights) + self._chrome_height()
 
     def _apply_window_size(self, *, initial: bool = False) -> None:
-        """Fit the window to its content, and keep it there.
+        """Freeze the window at the size its content asks for.
 
-        The window is **fixed**: it is exactly as big as what it has to show, it
-        grows on its own when the content grows — a validated account, a fetched
-        biography, an opened suggestion list — and it is not something the user has
-        to size. That is why it is measured again on every change instead of only
-        once: a fixed window that forgot to re-measure would clip whatever arrived
-        later.
+        It cannot be resized by hand: dragging an edge does nothing, because there
+        is nothing to arrange and nothing to stretch. So the size is *frozen* rather
+        than merely set, and it is frozen again whenever the content changes — a
+        validated account brings a profile card, an opened suggestion list is taller
+        — because a fixed window that forgot to re-measure would clip whatever
+        arrived later.
 
         The result never exceeds what the screen offers: a 1080p laptop at 150% of
         scaling leaves about 690 logical pixels, and a window taller than the screen
-        has a bottom nobody can reach. The pages scroll in that case, and not at all
-        when they fit.
+        has a bottom nobody can reach, because it cannot be resized. The pages
+        scroll in that case, and not at all when they fit.
         """
 
         width, window_height = self._measure()
         available = self.available_height()
-
-        # The floors are fixed, not measured. A minimum taken from the measured
-        # content would rise as the window narrows, which would make the window
-        # refuse to be narrowed at all.
-        self.setMinimumSize(MINIMUM_CONTENT_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
         height = clamped_height(window_height, available)
         if height < window_height:
@@ -283,14 +286,13 @@ class WindowUiMixin:
             # up hidden under the scrollbar.
             width += self.scroll.verticalScrollBar().sizeHint().width()
 
-        # While the widgets are still hidden the measurement is an approximation, so
-        # the first pass only records the minimum; the one taken as the window
-        # appears is the one that decides the size.
-        if not self._initial_size_applied and not initial:
-            return
+        # The size is frozen from the very first measurement — with the approximation
+        # while hidden, with the real numbers once the window is on screen. It is
+        # frozen rather than merely set, because a window that can be dragged is a
+        # window the user can leave in a shape its content does not fit, and there is
+        # nothing here to arrange: a resize has nothing it could be for.
+        self.setFixedSize(width, height)
         self._initial_size_applied = True
-        if (self.width(), self.height()) != (width, height):
-            self.resize(width, height)
 
     @staticmethod
     def _page_height(page: QWidget, width: int) -> int:

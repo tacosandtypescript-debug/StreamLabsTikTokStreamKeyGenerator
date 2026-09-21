@@ -579,16 +579,21 @@ class ProfileCard(QWidget):
 
 
 class StepsGuide(QFrame):
-    """A short, numbered list of what to do, with the step you are on marked.
+    """What to do, showing only the step you are on until you ask for the rest.
 
     The application used to open on a screen full of fields — token, permission,
     category, OBS — with nothing saying which of them mattered first or how far along
     the user was. Someone opening it for the first time could not tell whether they
     were missing a step or doing it wrong.
 
-    Every step here is answered by state the window already holds, so the guide
-    cannot claim a step is done when it is not: the tick comes from the same values
-    that enable the buttons.
+    It shows one line by default. The full list is five steps tall and the window is
+    exactly as tall as its content, so spelling out the steps already done cost more
+    height than it was worth — the current step is the only one that has to be on
+    screen, and the rest are one click away.
+
+    Every step is answered by state the window already holds, so the guide cannot
+    claim a step is done when it is not: the tick comes from the same values that
+    enable the buttons.
     """
 
     dismissed = Signal()
@@ -598,68 +603,117 @@ class StepsGuide(QFrame):
         self.setObjectName("guide")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
+        self._steps = list(steps)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(5)
 
+        # The one line that is always visible: the step in hand.
         heading_row = QHBoxLayout()
         heading_row.setSpacing(8)
-        heading = QLabel("Primeros pasos", self)
-        heading.setObjectName("guideTitle")
-        heading_row.addWidget(heading)
-        heading_row.addStretch(1)
-        self.hide_btn = QPushButton("Ocultar", self)
-        self.hide_btn.setObjectName("link")
-        self.hide_btn.setToolTip("Oculta esta guía; puedes volver a verla desde «Más» → «Ayuda»")
-        self.hide_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hide_btn.clicked.connect(self.dismissed.emit)
-        heading_row.addWidget(self.hide_btn)
+        self.mark_label = QLabel("●", self)
+        self.mark_label.setObjectName("guideMark")
+        self.mark_label.setFixedWidth(18)
+        self.mark_label.setProperty("state", "current")
+        heading_row.addWidget(self.mark_label, 0, Qt.AlignmentFlag.AlignTop)
+        self.current_label = QLabel(self)
+        self.current_label.setObjectName("guideStep")
+        self.current_label.setWordWrap(True)
+        self.current_label.setProperty("state", "current")
+        heading_row.addWidget(self.current_label, 1)
         layout.addLayout(heading_row)
 
+        self.detail_label = QLabel(self)
+        self.detail_label.setObjectName("muted")
+        self.detail_label.setWordWrap(True)
+        layout.addWidget(self.detail_label)
+
+        # The whole list, folded away until it is asked for.
+        self.list_body = QWidget(self)
+        list_layout = QVBoxLayout(self.list_body)
+        list_layout.setContentsMargins(0, 4, 0, 0)
+        list_layout.setSpacing(3)
         self._rows: list[tuple[QLabel, QLabel]] = []
-        for text, detail in steps:
+        for text, _detail in self._steps:
             row = QHBoxLayout()
             row.setSpacing(8)
-            mark = QLabel(self)
+            mark = QLabel(self.list_body)
             mark.setObjectName("guideMark")
             mark.setFixedWidth(18)
             row.addWidget(mark, 0, Qt.AlignmentFlag.AlignTop)
-            column = QVBoxLayout()
-            column.setSpacing(1)
-            label = QLabel(text, self)
+            label = QLabel(text, self.list_body)
             label.setObjectName("guideStep")
             label.setWordWrap(True)
-            column.addWidget(label)
-            if detail:
-                hint = QLabel(detail, self)
-                hint.setObjectName("muted")
-                hint.setWordWrap(True)
-                column.addWidget(hint)
-            row.addLayout(column, 1)
-            layout.addLayout(row)
+            row.addWidget(label, 1)
+            list_layout.addLayout(row)
             self._rows.append((mark, label))
+        self.list_body.setVisible(False)
+        layout.addWidget(self.list_body)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(12)
+        self.toggle_btn = QPushButton("Ver los 5 pasos", self)
+        self.toggle_btn.setObjectName("link")
+        self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_btn.clicked.connect(self.toggle_details)
+        buttons.addWidget(self.toggle_btn)
+        buttons.addStretch(1)
+        self.hide_btn = QPushButton("Ocultar", self)
+        self.hide_btn.setObjectName("link")
+        self.hide_btn.setToolTip("Oculta esta guía; puedes volver a verla desde «Más»")
+        self.hide_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hide_btn.clicked.connect(self.dismissed.emit)
+        buttons.addWidget(self.hide_btn)
+        layout.addLayout(buttons)
+
+    def toggle_details(self) -> None:
+        """Show or hide the whole list."""
+
+        showing = not self.list_body.isVisible()
+        self.list_body.setVisible(showing)
+        self.toggle_btn.setText("Ocultar los pasos" if showing else "Ver los 5 pasos")
+
+    def details_shown(self) -> bool:
+        return self.list_body.isVisible()
 
     def set_progress(self, index: int) -> None:
-        """Mark every step up to ``index`` as done and ``index`` as the one to do.
+        """Show the step in hand, and mark the whole list behind it.
 
         ``index`` equal to the number of steps means everything is done. Passing
-        ``-1`` leaves every step untouched, which is what "cannot tell yet" looks
-        like — an account that has not been validated cannot be called unfinished.
+        ``-1`` means "cannot tell yet", which is not the same as unfinished: an
+        account that has not answered yet must not be called a missing step.
         """
+
+        if 0 <= index < len(self._steps):
+            text, detail = self._steps[index]
+            self.current_label.setText(text)
+            self.detail_label.setText(detail)
+            self.detail_label.setVisible(bool(detail))
+        elif index >= len(self._steps):
+            self.current_label.setText("Todo listo: pega la URL y la clave en OBS")
+            self.detail_label.setText("El estado cambiará solo en cuanto OBS empiece a enviar.")
+            self.detail_label.setVisible(True)
+        else:
+            self.current_label.setText("Primeros pasos")
+            self.detail_label.setVisible(False)
+
+        headline_state = "done" if index >= len(self._steps) else "current"
+        for widget in (self.mark_label, self.current_label):
+            if widget.property("state") != headline_state:
+                widget.setProperty("state", headline_state)
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
 
         for position, (mark, label) in enumerate(self._rows):
             done = index >= 0 and position < index
             current = index >= 0 and position == index
             mark.setText("✓" if done else ("●" if current else "○"))
             state = "done" if done else ("current" if current else "pending")
-            if mark.property("state") != state:
-                mark.setProperty("state", state)
-                mark.style().unpolish(mark)
-                mark.style().polish(mark)
-            if label.property("state") != state:
-                label.setProperty("state", state)
-                label.style().unpolish(label)
-                label.style().polish(label)
+            for widget in (mark, label):
+                if widget.property("state") != state:
+                    widget.setProperty("state", state)
+                    widget.style().unpolish(widget)
+                    widget.style().polish(widget)
 
     def step_state(self, position: int) -> str:
         """Return the state drawn for one step, for tests and for callers."""

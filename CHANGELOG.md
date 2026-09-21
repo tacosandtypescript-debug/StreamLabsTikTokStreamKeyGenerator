@@ -4,14 +4,28 @@
 
 ### Corregido
 
+- **La ventana no se puede redimensionar, y no lo pretende.** Tirar de un borde no
+  hacía nada útil: el tamaño volvía al suyo un momento después, así que la ventana
+  *parecía* redimensionable y no lo era — lo peor de los dos mundos. Ahora está
+  **fijada** con `setFixedSize`, el botón de maximizar no está, y forzar otro tamaño
+  desde fuera no la mueve: comprobado con `800x400`, `300x1250` y `456x900`, y en los
+  tres casos mantiene el suyo.
 - **La ventana se redimensionaba sola unos segundos después de moverla.** Qt manda
   `showEvent` otra vez cada vez que una ventana se muestra tras estar oculta
   —restaurada de la barra de tareas, des-minimizada— y el ajuste inicial corría en
-  todas ellas, devolviendo la ventana al tamaño de su contenido. Medido: se pedía
-  `700x620` y a los cinco segundos volvía a `700x969` por su cuenta.
-- **La ventana vuelve a ajustarse a su contenido**, que es lo que debe hacer: al
-  validar la cuenta aparece la tarjeta del perfil, y al abrir la lista de categorías
-  crece. Antes solo se medía una vez, así que lo que llegaba después se recortaba.
+  todas ellas. Medido: se pedía `700x620` y a los cinco segundos volvía a `700x969`.
+- **El ancho ya no se mide, es una constante.** Se le preguntaba a las páginas el
+  ancho que *querían*, que es su maquetación preferida y baila con el contenido: la
+  ventana salía de 430 o de 600 según lo que hubiera en pantalla. Ahora mide 430
+  siempre, y solo la altura depende del contenido, que es la que de verdad depende.
+
+### Cambiado
+
+- **La guía de primeros pasos ocupa la cuarta parte.** Enseñaba los cinco pasos
+  completos, con su explicación cada uno: **339 px**, más de lo que costaba el resto
+  de la pantalla junta. Ahora muestra **solo el paso en el que estás** y el resto se
+  despliega con «Ver los 5 pasos»; **111 px**. La ventana es tan alta como su
+  contenido, así que esos 228 px se notan.
 
 ### Añadido
 
