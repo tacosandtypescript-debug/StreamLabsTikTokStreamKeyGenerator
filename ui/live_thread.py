@@ -14,10 +14,13 @@ Nothing from the previous stream survives, so there is nothing to forget to clea
 from __future__ import annotations
 
 import logging
+import threading
+from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
 
 from live_state import SessionCycle
+from live_timeline import IngestMarker
 from live_watch import LiveWatcher
 from streamlabs_client import StreamlabsTikTokClient, StreamSession
 
@@ -42,6 +45,39 @@ class _WatchLoop(QObject):
 
     def stop(self) -> None:
         self._watcher.stop()
+
+
+class IngestMarkerThread:
+    """Samples the local socket table closely, to date the OBS connection exactly.
+
+    A plain Python thread rather than a QThread: this loop only reads the operating
+    system's table and appends to a list, so it never touches a widget and has no
+    Qt object to move between threads.
+    """
+
+    def __init__(
+        self,
+        *,
+        session: StreamSession,
+        timeline: Any,
+        parent: QObject | None = None,
+    ) -> None:
+        self._marker = IngestMarker(session, timeline)
+        self._thread = threading.Thread(
+            target=self._marker.run, name="ingest-marker", daemon=True
+        )
+
+    def start(self) -> None:
+        LOGGER.info("Marcador de ingesta iniciado (muestreo cada 0,1 s)")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._marker.stop()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    def is_running(self) -> bool:
+        return self._thread.is_alive()
 
 
 class LiveWatchThread(QObject):

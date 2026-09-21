@@ -32,6 +32,7 @@ from config_store import (
 from diagnostics import build_report, default_report_path, issue_url, system_summary
 from errors import safe_error_message
 from live_state import LiveState, SessionCycle, elapsed_text
+from live_timeline import StreamTimeline
 from local_token import find_local_token, local_token_hint
 from logging_setup import log_directory, log_file_path
 from secure_store import SecureTokenStore, TokenStoreUnavailable
@@ -50,7 +51,7 @@ from ui.geometry import (
     restore_geometry,
     sanitized_geometry,
 )
-from ui.live_thread import LiveWatchThread
+from ui.live_thread import IngestMarkerThread, LiveWatchThread
 from ui.shortcuts import install_shortcuts
 from ui.update_flow import UpdateFlowMixin
 from ui.window_ui import WindowUiMixin
@@ -143,6 +144,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._live_cycle = SessionCycle()
         self._live_generation = 0
         self._watch: LiveWatchThread | None = None
+        # The latency budget of the run: every stage, stamped relative to the
+        # moment the credentials were ready.
+        self._timeline = StreamTimeline()
+        self._marker: IngestMarkerThread | None = None
         # One second, so the on-air clock moves without asking the network anything.
         self._live_timer = QTimer(self)
         self._live_timer.setInterval(1000)
@@ -755,6 +760,7 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self.stream_key.setText(session.stream_key)
         self._set_status("Sesión preparada; configura OBS")
         self._start_live_watch(session)
+        self._timeline.mark("RTMP_READY", "URL y clave en pantalla; la app ya no hace nada más")
         self._update_controls()
         QMessageBox.information(
             self,
@@ -777,7 +783,12 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             wall_started_at=datetime.now().isoformat(timespec="seconds"),
         )
         self._live_generation += 1
+        self._live_cycle.move_to(LiveState.PREPARING, "petición enviada")
         self._live_cycle.move_to(LiveState.PREPARED, "credenciales recibidas")
+        # The clock of the whole run starts here: everything after this point is
+        # what the user experiences as "how long it takes to start".
+        self._timeline = StreamTimeline()
+        self._timeline.mark("SESSION_CREATED", f"broadcast={session.broadcast_id or 'sin id'}")
         self._watch = LiveWatchThread(
             token=self._validated_token or "",
             session=session,
@@ -788,6 +799,11 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self._on_live_cycle_changed, Qt.ConnectionType.QueuedConnection
         )
         self._watch.start()
+        # A second watcher, on its own thread and its own fine-grained clock: it
+        # dates the exact moment OBS connects, which the state poller is far too
+        # slow to see.
+        self._marker = IngestMarkerThread(session=session, timeline=self._timeline, parent=self)
+        self._marker.start()
         self._sync_live_state()
 
     def _stop_live_watch(self) -> None:
@@ -800,13 +816,29 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         watch, self._watch = self._watch, None
         if watch is not None:
             watch.stop()
+        marker, self._marker = self._marker, None
+        if marker is not None:
+            marker.stop()
 
     def _on_live_cycle_changed(self, cycle: Any) -> None:
-        """Redraw from a cycle the watcher just moved."""
+        """Redraw from a cycle the watcher just moved, and stamp the moments."""
 
         if self._closing or not _widget_is_alive(self):
             return
+        previous = self._live_cycle.state
         self._live_cycle = cycle
+        if cycle.state is not previous:
+            if cycle.state is LiveState.WAITING_INGEST:
+                self._timeline.mark("WAITING_FOR_INGEST", "la app espera a OBS")
+            elif cycle.state is LiveState.CONNECTING:
+                self._timeline.mark("TIKTOK_RECEIVING_STREAM", "confirmando con la plataforma")
+            elif cycle.state is LiveState.LIVE:
+                since = self._timeline.mark("LIVE_CONFIRMED", "el directo está en vivo")
+                LOGGER.info("%s", self._timeline.report())
+                LOGGER.info(
+                    "LATENCIA: OBS->EN VIVO en %.2f s (de ellos, la app: <1 s)",
+                    since,
+                )
         self._sync_live_state()
 
     def _sync_live_state(self) -> None:
@@ -889,6 +921,8 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self._closing_after_end = False
 
     def _stream_ended(self, _: Any = None) -> None:
+        self._timeline.mark("LIVE_ENDED", "la sesión se cerró")
+        LOGGER.info("%s", self._timeline.report())
         self._stop_live_watch()
         self._live_cycle = SessionCycle(generation=self._live_generation)
         self._active_session = None

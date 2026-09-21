@@ -2,6 +2,38 @@
 
 ## Sin publicar
 
+### Añadido
+
+- **Presupuesto de latencia del arranque.** Cada directo anota, con la décima de
+  segundo, cuándo ocurrió cada etapa desde que las credenciales estuvieron listas:
+  `SESSION_CREATED`, `RTMP_READY`, `WAITING_FOR_INGEST`, `OBS_CONNECTED`,
+  `TIKTOK_RECEIVING_STREAM`, `LIVE_CONFIRMED`, `LIVE_ENDED`. `OBS_CONNECTED` se mide
+  con un hilo propio que muestrea la tabla de conexiones cada 0,1 s, porque el
+  vigilante de estados es demasiado lento para fechar ese instante. Responde a la
+  pregunta «¿por qué tarda en arrancar?» con números en vez de con opiniones.
+- `tools/probe_live_status.py` y `tools/probe_public_live.py`: sondean, solo con
+  lecturas, qué endpoint y qué método informan del estado real del directo.
+
+### Medido
+
+- **La aplicación no es el cuello de botella.** En una prueba real: credenciales
+  listas en `t+0.00s` y `RTMP_READY` en `t+0.03s`. **30 ms.** El resto del tiempo es
+  OBS y TikTok.
+- **Detección de OBS: 64 ms.** OBS conectó al RTMP a las `04:47:16.472` y la
+  aplicación lo detectó a las `04:47:16.536`. El salto de «Esperando señal de OBS» a
+  «Iniciando transmisión…» funcionó solo, sin tocar nada.
+
+### Pendiente, y es lo que queda por resolver
+
+- **Confirmar el LIVE con TikTok.** `GET /stream/{broadcast_id}` responde **HTTP
+  405**, que significa que la ruta existe y el método está mal — no que la ruta no
+  exista. Hasta dar con el método correcto, la aplicación detecta la señal de OBS
+  pero se queda en «Iniciando transmisión…» y **no** pasa a EN VIVO.
+- Se descartó la página pública de TikTok como fuente: devuelve datos de
+  reproducción también para salas **ya terminadas** (`@tiktok`, que no emite,
+  devuelve los mismos 6 bloques que una cuenta en directo). Construir sobre eso
+  habría hecho decir «EN VIVO» con el directo apagado.
+
 ### Corregido
 
 - **Un cierre rechazado se contaba como si se hubiera perdido la conexión.** Cuando
