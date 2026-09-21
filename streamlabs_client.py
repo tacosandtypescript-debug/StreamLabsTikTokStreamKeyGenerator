@@ -7,7 +7,7 @@ import platform
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
 import requests
@@ -48,6 +48,18 @@ def _safe_request_path(path: str) -> str:
 
     normalized = "/" + path.lstrip("/")
     return re.sub(r"(/stream/)[^/]+(/end)$", r"\1<session>\2", normalized)
+
+
+def _report_status(callback: Callable[[int], None] | None, status_code: int) -> None:
+    """Tell ``callback`` the status of a request that succeeded, if it cares.
+
+    Only used where a 2xx body can still refuse the operation: ending a session
+    has to distinguish "Streamlabs answered and said no" from "Streamlabs never
+    answered", because only the first one means the session may already be closed.
+    """
+
+    if callback is not None:
+        callback(status_code)
 
 
 def _response_fields(payload: dict[str, Any]) -> str:
@@ -220,11 +232,17 @@ class StreamlabsTikTokClient:
         allow_empty: bool = False,
         retries: int = 0,
         retry_delays: tuple[float, ...] = REQUEST_RETRY_DELAYS,
+        status_callback: Callable[[int], None] | None = None,
     ) -> dict[str, Any]:
         """Perform a request, repeating it while the failure looks transient.
 
         ``retries`` is opt-in and must stay at zero for requests that are not
         idempotent: repeating ``POST /stream/start`` can create a second session.
+
+        ``status_callback``, when given, is told the HTTP status of the request
+        that succeeded. Only the caller that has to reason about a 2xx whose body
+        still refuses needs it — ending a session, where "the reply arrived but
+        says no" and "the reply never arrived" mean opposite things to the user.
         """
 
         attempt = 0
@@ -236,6 +254,7 @@ class StreamlabsTikTokClient:
                     params=params,
                     files=files,
                     allow_empty=allow_empty,
+                    status_callback=status_callback,
                 )
             except StreamlabsError as exc:
                 if attempt >= retries or not self._is_retryable(exc):
@@ -284,6 +303,7 @@ class StreamlabsTikTokClient:
         params: dict[str, str] | None = None,
         files: Iterable[tuple[str, tuple[None, str]]] | None = None,
         allow_empty: bool = False,
+        status_callback: Callable[[int], None] | None = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         safe_path = _safe_request_path(path)
@@ -393,6 +413,7 @@ class StreamlabsTikTokClient:
                 method.upper(),
                 safe_path,
             )
+            _report_status(status_callback, response.status_code)
             return {"success": True}
 
         try:
@@ -404,6 +425,7 @@ class StreamlabsTikTokClient:
                     method.upper(),
                     safe_path,
                 )
+                _report_status(status_callback, response.status_code)
                 return {"success": True}
             LOGGER.warning(
                 "Streamlabs returned invalid JSON: %s %s (%s)",
@@ -429,6 +451,7 @@ class StreamlabsTikTokClient:
             safe_path,
             _response_fields(payload),
         )
+        _report_status(status_callback, response.status_code)
         return payload
 
     def get_account_info(self) -> AccountInfo:
@@ -542,6 +565,14 @@ class StreamlabsTikTokClient:
             raise ValueError("No hay una sesión de Streamlabs activa.")
 
         path = f"/stream/{quote(session_id, safe='')}/end"
+        # Filled in by the request that succeeds, so that a body which still
+        # refuses the close can be reported with the status it arrived with.
+        http_status: int | None = None
+
+        def remember_status(status_code: int) -> None:
+            nonlocal http_status
+            http_status = status_code
+
         try:
             # The retrying itself lives in ``_request_json``; what is specific to
             # ending a session is the idempotency rule for a missing one.
@@ -551,6 +582,7 @@ class StreamlabsTikTokClient:
                 allow_empty=True,
                 retries=len(END_STREAM_RETRY_DELAYS),
                 retry_delays=END_STREAM_RETRY_DELAYS,
+                status_callback=remember_status,
             )
         except StreamlabsError as exc:
             if getattr(exc, "status_code", None) == 404:
@@ -571,8 +603,16 @@ class StreamlabsTikTokClient:
             return
         if success is True or success in (1, "1", "true", "True"):
             return
+        # A 2xx whose body says the session was *not* closed. This is not a
+        # transport problem — the reply arrived and was understood — so the status
+        # code is carried along to say exactly that: without it the dialog is
+        # indistinguishable from a dropped connection, and the two want completely
+        # different advice.
         LOGGER.warning(
-            "Streamlabs end response did not confirm success (success_type=%s)",
+            "Streamlabs refused to close the session (success_type=%s)",
             type(success).__name__,
         )
-        raise StreamlabsError("Streamlabs no confirmó el cierre de la sesión.")
+        raise StreamlabsError(
+            "Streamlabs recibió la petición de cierre pero no la aceptó.",
+            status_code=http_status,
+        )

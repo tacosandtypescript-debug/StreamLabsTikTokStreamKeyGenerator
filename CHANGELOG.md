@@ -1,5 +1,20 @@
 # Registro de cambios
 
+## Sin publicar
+
+### Corregido
+
+- **Un cierre rechazado se contaba como si se hubiera perdido la conexión.** Cuando
+  Streamlabs responde `2xx` pero el cuerpo trae `success: false`, el error salía sin
+  código HTTP y el diálogo decía «vuelve a pulsarlo». Ese es el consejo equivocado:
+  la petición llegó y fue entendida, así que reintentarla falla igual, y lo más
+  probable es que no quedara nada que cerrar. Ahora ese caso se distingue, lleva su
+  código HTTP y explica que conviene descartar la sesión si vuelve a rechazarse.
+  Importa porque una sesión que se conserva **bloquea «Preparar directo»**: sin esta
+  salida, el usuario se queda en un bucle sin saber por qué.
+- El registro de ese fallo dejó de apoyarse en el valor de `success`: se anota su
+  *tipo*, nunca su contenido.
+
 ## v2.8.0
 
 Rediseño de la interfaz entera. Nada de lo que hace la aplicación cambia: cambia

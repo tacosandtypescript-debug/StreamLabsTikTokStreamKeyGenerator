@@ -153,8 +153,59 @@ def test_end_response_logs_confirmation_type(caplog):
     with pytest.raises(StreamlabsError):
         client.end_stream("session-1")
 
-    assert "did not confirm success" in caplog.text
+    assert "refused to close" in caplog.text
     assert "False" not in caplog.text
+
+
+def test_a_refusal_that_arrived_is_not_reported_as_a_lost_connection():
+    # A 2xx whose body refuses the close is not a transport failure: Streamlabs
+    # answered. Carrying the status code is what lets the dialog tell the user
+    # that, instead of telling them to retry a request that was understood and
+    # turned down.
+    client, _ = make_client([FakeResponse({"success": False}, status_code=200)])
+
+    with pytest.raises(StreamlabsError) as caught:
+        client.end_stream("session-1")
+
+    assert caught.value.status_code == 200
+
+
+def test_the_refusal_names_the_status_that_was_refused():
+    client, _ = make_client([FakeResponse({"success": 0}, status_code=202)])
+
+    with pytest.raises(StreamlabsError) as caught:
+        client.end_stream("session-1")
+
+    assert caught.value.status_code == 202
+
+
+def test_a_refused_close_is_never_retried_by_itself(monkeypatch):
+    # Retrying a request that arrived and was refused just fails the same way, and
+    # the user would watch the app hammer Streamlabs for no reason.
+    client, session = make_client([FakeResponse({"success": False})])
+    delays = []
+    monkeypatch.setattr(streamlabs_client.time, "sleep", delays.append)
+
+    with pytest.raises(StreamlabsError):
+        client.end_stream("session-1")
+
+    assert len(session.calls) == 1
+    assert delays == []
+
+
+def test_the_refusal_reads_differently_from_a_broken_connection():
+    from errors import safe_error_message
+
+    refused = safe_error_message(StreamlabsError("boom", status_code=200))
+    server_error = safe_error_message(StreamlabsError("boom", status_code=503))
+    gone = safe_error_message(NetworkError("boom"))
+
+    assert "rechazó" in refused
+    assert "200" in refused
+    # The three want different advice, so they must not read the same.
+    assert refused != server_error != gone
+    assert "rechazó" not in server_error
+    assert "rechazó" not in gone
 
 
 def test_end_accepts_a_successful_empty_response():
