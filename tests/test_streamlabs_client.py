@@ -146,6 +146,94 @@ def test_start_response_logs_missing_fields_without_values(caplog):
     assert "session-1" not in caplog.text
 
 
+def test_the_refusal_reason_from_streamlabs_is_kept():
+    """The platform explains why an account may not broadcast; keep the words.
+
+    It used to be thrown away, which left the user with "Puede emitir: No" and no
+    way to know whether to apply for access, wait, or check something.
+    """
+
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "nueva"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": False,
+                    "reason": "La cuenta no tiene acceso a LIVE en esta region.",
+                }
+            )
+        ]
+    )
+
+    info = client.get_account_info()
+
+    assert info.can_be_live is False
+    assert info.reason == "La cuenta no tiene acceso a LIVE en esta region."
+
+
+def test_a_missing_reason_is_an_empty_string_and_never_an_error():
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "sin_motivo"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": True,
+                }
+            )
+        ]
+    )
+
+    info = client.get_account_info()
+
+    assert info.can_be_live is True
+    assert info.reason == ""
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"reason": {"message": "anidado un nivel"}},
+        {"application_status": {"status": "x", "reason": "dentro del estado"}},
+        {"message": "campo alternativo"},
+        {"error": {"description": "descripcion anidada"}},
+    ],
+)
+def test_the_reason_is_found_wherever_the_response_puts_it(payload):
+    body = {
+        "user": {"username": "u"},
+        "application_status": {"status": "approved"},
+        "can_be_live": False,
+        **payload,
+    }
+    client, _ = make_client([FakeResponse(body)])
+
+    assert client.get_account_info().reason != ""
+
+
+def test_a_chatty_reason_cannot_break_the_page_that_shows_it():
+    from streamlabs_client import MAX_REASON_LENGTH
+
+    client, _ = make_client(
+        [
+            FakeResponse(
+                {
+                    "user": {"username": "u"},
+                    "application_status": {"status": "approved"},
+                    "can_be_live": False,
+                    "reason": "linea\n" * 400,
+                }
+            )
+        ]
+    )
+
+    reason = client.get_account_info().reason
+
+    assert len(reason) <= MAX_REASON_LENGTH
+    assert "\n" not in reason
+
+
 def test_end_response_logs_confirmation_type(caplog):
     caplog.set_level("INFO", logger="streamlabs_client")
     client, _ = make_client([FakeResponse({"success": False})])

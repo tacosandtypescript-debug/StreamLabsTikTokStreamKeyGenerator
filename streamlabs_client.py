@@ -62,6 +62,44 @@ def _report_status(callback: Callable[[int], None] | None, status_code: int) -> 
         callback(status_code)
 
 
+# Long enough for a real explanation, short enough that a chatty API cannot turn the
+# account page into a wall of text.
+MAX_REASON_LENGTH = 300
+
+
+def _reason_from(payload: dict[str, Any], application_status: dict[str, Any]) -> str:
+    """Return why the account may not broadcast, as the platform worded it.
+
+    The field is read from wherever it appears, because the response has changed
+    shape before and a missing reason must never be an error — an account that
+    validates is not made worse by a message that could not be read. Whatever comes
+    back is treated as untrusted text: flattened to a single line and capped, so a
+    stray payload cannot break the layout of the page that shows it.
+    """
+
+    for scope in (payload, application_status):
+        for key in ("reason", "message", "error", "detail"):
+            value = scope.get(key)
+            if isinstance(value, str) and value.strip():
+                return _one_line(value)
+            # Some responses nest it one level deeper.
+            if isinstance(value, dict):
+                for inner in ("message", "reason", "text", "description"):
+                    nested = value.get(inner)
+                    if isinstance(nested, str) and nested.strip():
+                        return _one_line(nested)
+    return ""
+
+
+def _one_line(text: str) -> str:
+    """Flatten text to one trimmed line, capped to something a label can hold."""
+
+    flattened = " ".join(str(text).split())
+    if len(flattened) <= MAX_REASON_LENGTH:
+        return flattened
+    return flattened[: MAX_REASON_LENGTH - 1].rstrip() + "…"
+
+
 def _mask_identifier(value: str) -> str:
     """Return an identifier that can go in a log line without being the identifier.
 
@@ -290,6 +328,10 @@ class AccountInfo:
     # reports them: 0 "Everyone", 1 "Adult Only".
     audience_types: tuple[tuple[int, str], ...] = ()
     audience_controls_disabled: bool = False
+    # Why Streamlabs says this account may not broadcast, in its own words. The API
+    # sends it in a ``reason`` field and the application used to throw it away, which
+    # left the user looking at "Puede emitir: No" with no idea what to do about it.
+    reason: str = ""
 
     def audience_label(self, key: int) -> str:
         """Return the label Streamlabs gives to an audience key."""
@@ -630,6 +672,9 @@ class StreamlabsTikTokClient:
         audience_types, controls_disabled = _audience_controls(
             payload.get("audience_controls_info")
         )
+        # The reason may arrive as a plain string or nested inside the application
+        # status; both shapes have been seen, so both are read.
+        reason = _reason_from(payload, application_status)
         return AccountInfo(
             username,
             status,
@@ -638,6 +683,7 @@ class StreamlabsTikTokClient:
             status_timestamp=timestamp if isinstance(timestamp, str) else None,
             audience_types=audience_types,
             audience_controls_disabled=controls_disabled,
+            reason=reason,
         )
 
     def get_account_info_payload(self) -> dict[str, Any]:

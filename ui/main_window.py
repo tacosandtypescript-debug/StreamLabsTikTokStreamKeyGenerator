@@ -491,11 +491,21 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._show_username(info.username)
         self._apply_audience_controls(info)
         self._set_can_go_live(info.can_be_live)
-        self.account_state.setText(f"Estado en Streamlabs: {info.application_status}")
+        if info.can_be_live:
+            self.account_state.setText(f"Estado en Streamlabs: {info.application_status}")
+        else:
+            # The refusal comes with a reason from the platform, and showing it is
+            # the difference between "you cannot" and "here is what is missing".
+            self.account_state.setText(self._refusal_explained(info))
         self._set_status("Cuenta validada" if info.can_be_live else "Sin permiso para emitir")
         self._maybe_fetch_avatar(info.username)
         self._load_profile(info.username)
-        LOGGER.info("Account validated: %s (can_be_live=%s)", info.username, info.can_be_live)
+        LOGGER.info(
+            "Account validated: %s (can_be_live=%s%s)",
+            info.username,
+            info.can_be_live,
+            f", motivo: {info.reason}" if info.reason else "",
+        )
         self._update_controls()
         if self._session_record is not None and not self._session_prompted:
             self._prompt_pending_session()
@@ -1386,6 +1396,23 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self.can_go_live.setProperty("state", state)
         self.can_go_live.style().unpolish(self.can_go_live)
         self.can_go_live.style().polish(self.can_go_live)
+
+    def _refusal_explained(self, info: Any) -> str:
+        """Return why the account may not broadcast, ready to be shown.
+
+        The platform sends its reason for refusing and the application used to drop
+        it, so the user was left with "Puede emitir: No" and no way to know whether
+        to wait, to apply for access, or to check something. A refusal without a
+        reason is the least useful thing a screen can say.
+        """
+
+        reason = getattr(info, "reason", "") or ""
+        if reason:
+            return f"No puede emitir todavía. Streamlabs dice: {reason}"
+        return (
+            "La cuenta no tiene acceso a TikTok LIVE a través de Streamlabs. "
+            "Se solicita aparte y no hacen falta 1000 seguidores."
+        )
 
     def _sync_account_summary(self) -> None:
         """Say on the button who the account belongs to, without opening it."""
