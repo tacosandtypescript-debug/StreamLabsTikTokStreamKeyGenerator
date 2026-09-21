@@ -62,6 +62,123 @@ def _report_status(callback: Callable[[int], None] | None, status_code: int) -> 
         callback(status_code)
 
 
+def _mask_identifier(value: str) -> str:
+    """Return an identifier that can go in a log line without being the identifier.
+
+    Session and broadcast identifiers are not secrets in the way a token is, but
+    they are handles someone else could act on, and the logs of this application are
+    meant to be safe to attach to an issue. The shape is kept so two lines can still
+    be told apart; the value is not.
+    """
+
+    text = str(value)
+    if len(text) <= 4:
+        return "…"
+    return f"…{text[-4:]}"
+
+
+def _truthy_flag(value: Any) -> bool | None:
+    """Read a boolean flag the way the several shapes of this API write one.
+
+    Returns ``None`` when the value is not recognisable as a flag at all, which is
+    important: treating "unknown" as "false" would report a live stream as offline.
+    """
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "live", "on", "streaming", "active"}:
+            return True
+        if normalized in {"false", "0", "no", "off", "ended", "inactive", "created"}:
+            return False
+    return None
+
+
+# The state words that mean "on air" and "over", for the APIs that answer with a
+# status word instead of a boolean. Anything not in either set is unknown, never
+# "not live": guessing here is what would show a dark screen during a live stream.
+_LIVE_STATE_WORDS = frozenset(
+    {"live", "streaming", "on_air", "onair", "started", "broadcasting", "active"}
+)
+_ENDED_STATE_WORDS = frozenset(
+    {"ended", "finished", "closed", "stopped", "offline", "idle", "created", "ready"}
+)
+
+
+def _broadcast_status_from(payload: dict[str, Any]) -> BroadcastStatus:
+    """Interpret a status response without assuming one exact contract.
+
+    The internal API this talks to is not documented and has changed shape before,
+    so the answer is read from any of the spellings it has used and anything
+    unrecognised is reported as unknown. Getting this wrong in the optimistic
+    direction invents a live stream; getting it wrong in the pessimistic direction
+    hides a real one. Neither is acceptable, so "I could not tell" is a real answer.
+    """
+
+    # The status may be at the top level or nested under the broadcast object.
+    scopes: list[dict[str, Any]] = [payload]
+    for key in ("data", "broadcast", "stream", "session", "live_room"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            scopes.append(nested)
+
+    live: bool | None = None
+    raw_state = ""
+    for scope in scopes:
+        for key in ("is_live", "live", "is_streaming", "streaming", "on_air"):
+            if key in scope:
+                flag = _truthy_flag(scope[key])
+                if flag is not None:
+                    live = flag
+                    break
+        if live is not None:
+            break
+
+    if live is None:
+        for scope in scopes:
+            for key in ("status", "state", "broadcast_status", "live_status"):
+                value = scope.get(key)
+                if isinstance(value, str) and value.strip():
+                    raw_state = value.strip()
+                    normalized = raw_state.casefold().replace(" ", "_").replace("-", "_")
+                    if normalized in _LIVE_STATE_WORDS:
+                        live = True
+                    elif normalized in _ENDED_STATE_WORDS:
+                        live = False
+                    break
+            if raw_state:
+                break
+
+    started_at: str | None = None
+    viewers: int | None = None
+    for scope in scopes:
+        if started_at is None:
+            for key in ("started_at", "start_time", "start_at", "live_started_at"):
+                value = scope.get(key)
+                if isinstance(value, str) and value.strip():
+                    started_at = value.strip()
+                    break
+                if isinstance(value, (int, float)) and value > 0:
+                    started_at = str(int(value))
+                    break
+        if viewers is None:
+            for key in ("viewer_count", "viewers", "watchers", "viewer_num"):
+                value = scope.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    viewers = value
+                    break
+
+    return BroadcastStatus(
+        live=live,
+        started_at=started_at,
+        viewers=viewers,
+        raw_state=raw_state,
+    )
+
+
 def _response_fields(payload: dict[str, Any]) -> str:
     """Summarize top-level response fields without logging their values."""
 
@@ -191,9 +308,48 @@ class Category:
 
 @dataclass(frozen=True)
 class StreamSession:
+    """Everything Streamlabs hands back when it opens a broadcast.
+
+    Only the URL and the key are needed to *start* streaming, but the rest is what
+    makes the broadcast *observable* afterwards: ``broadcast_id`` is the handle the
+    live status is asked about, and ``channel_name``/``region``/``chat_id`` are
+    carried along because they identify which channel was opened, which is how a
+    stale session from an earlier stream is told apart from the current one.
+    """
+
     session_id: str
     rtmp_url: str
     stream_key: str
+    broadcast_id: str = ""
+    channel_name: str = ""
+    region: str = ""
+    chat_id: str = ""
+
+    def identity(self) -> str:
+        """Return what makes this session distinguishable from any other.
+
+        Used to prove that a new broadcast is a genuinely new one and that nothing
+        is left over from the previous stream.
+        """
+
+        return self.broadcast_id or self.session_id
+
+
+@dataclass(frozen=True)
+class BroadcastStatus:
+    """What the platform says about a broadcast right now.
+
+    ``live`` is the only field that matters for the state machine, and it is
+    deliberately tri-state in effect: ``None`` means the platform was asked and
+    could not say, which is *not* the same as "not live" and must never be folded
+    into it — reporting a stream as not live because a request failed is how a user
+    ends up staring at the wrong state.
+    """
+
+    live: bool | None
+    started_at: str | None = None
+    viewers: int | None = None
+    raw_state: str = ""
 
 
 class StreamlabsTikTokClient:
@@ -550,7 +706,21 @@ class StreamlabsTikTokClient:
             )
             raise EndpointChangedError("La respuesta de inicio de Streamlabs cambió.")
 
-        return StreamSession(session_id, rtmp_url, stream_key)
+        def text(key: str) -> str:
+            """Return an optional string field, or "" when it is absent or odd."""
+
+            value = payload.get(key)
+            return value if isinstance(value, str) else ""
+
+        return StreamSession(
+            session_id,
+            rtmp_url,
+            stream_key,
+            broadcast_id=text("broadcast_id"),
+            channel_name=text("channel_name"),
+            region=text("region"),
+            chat_id=text("chat_id"),
+        )
 
     @staticmethod
     def _device_platform() -> str:
@@ -559,6 +729,39 @@ class StreamlabsTikTokClient:
             "Darwin": "darwin",
             "Linux": "linux",
         }.get(platform.system(), platform.system().lower())
+
+    def live_status(self, session: StreamSession) -> BroadcastStatus:
+        """Ask the platform whether this broadcast is actually on air.
+
+        This is the mechanism the application was missing entirely: the session
+        response says the broadcast was *created*, and creating it is not the same
+        as the platform having it on air. Nothing else in this client can answer
+        that question, so this is what the state machine polls.
+
+        A failure here is reported as an unknown status rather than raised: the
+        caller is a poll loop, and a poll that cannot reach the platform must leave
+        the state alone, not tear the session down. A missing broadcast identifier
+        is the one exception — without it there is nothing to ask about, and saying
+        so once is more useful than polling a question with no subject.
+        """
+
+        broadcast_id = session.broadcast_id or session.session_id
+        if not broadcast_id:
+            raise ValueError("No hay una sesión de Streamlabs activa.")
+
+        path = f"/stream/{quote(broadcast_id, safe='')}"
+        try:
+            payload = self._request_json("GET", path, retries=0)
+        except StreamlabsError as exc:
+            LOGGER.warning(
+                "Live status could not be read for broadcast %s: %s (HTTP %s)",
+                _mask_identifier(broadcast_id),
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
+            )
+            return BroadcastStatus(live=None, raw_state="unavailable")
+
+        return _broadcast_status_from(payload)
 
     def end_stream(self, session_id: str) -> None:
         if not isinstance(session_id, str) or not session_id:

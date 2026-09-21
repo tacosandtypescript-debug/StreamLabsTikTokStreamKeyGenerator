@@ -301,6 +301,15 @@ def stylesheet(theme: str) -> str:
     QLabel#summaryValue[state="error"] {{ color: {t["error"]}; }}
     QLabel#summaryValue[state="live"] {{ color: {t["live"]}; }}
 
+    /* The live state is the one value on the page that moves on its own, so it is
+       set large: when it finally says EN VIVO it should be readable from across the
+       room, next to OBS. */
+    QLabel#liveState {{ font-size: 20px; font-weight: 700; }}
+    QLabel#liveState[state="ok"] {{ color: {t["live"]}; }}
+    QLabel#liveState[state="warn"] {{ color: {t["warn"]}; }}
+    QLabel#liveState[state="error"] {{ color: {t["error"]}; }}
+    QLabel#liveElapsed {{ color: {t["muted"]}; font-size: 15px; font-weight: 600; }}
+
     QLabel#badge {{ color: {t["muted"]}; font-weight: 600; }}
     QLabel#badge[state="ok"] {{ color: {t["ok"]}; }}
     QLabel#badge[state="warn"] {{ color: {t["warn"]}; }}

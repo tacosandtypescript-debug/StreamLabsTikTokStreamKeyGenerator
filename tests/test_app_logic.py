@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QLabel
 
 import avatar as avatar_store
 from config_store import ActiveSession, AppConfig, ConfigStore, read_config_file
+from live_state import LiveState, SessionCycle
 from secure_store import ACCOUNT_NAME, SERVICE_NAME, SecureTokenStore
 from streamlabs_client import (
     AccountInfo,
@@ -121,7 +122,12 @@ def app(qtbot, store, backend, monkeypatch, tmp_path):
         token_store=SecureTokenStore(backend=backend),
     )
     qtbot.addWidget(window)
-    return window
+    yield window
+    # A test that started a broadcast leaves a watching thread behind, and Qt must
+    # not be asked to destroy a window that still owns a running thread. The window
+    # is stopped here rather than in each test so no test can forget.
+    window._stop_live_watch()
+    window._live_timer.stop()
 
 
 def _validated(app, token="token-value"):
@@ -723,12 +729,58 @@ def test_the_banner_announces_a_prepared_stream(app):
     _validated(app)
     app._active_session = StreamSession("session-1", "rtmp://server", "key")
     app._session_record = ActiveSession("session-1", "Title", "2026-01-01T20:15:00+00:00")
+    app._live_cycle = SessionCycle()
+    app._live_cycle.move_to(LiveState.PREPARING, "test")
+    app._live_cycle.move_to(LiveState.PREPARED, "test")
 
     app._refresh_banner()
 
-    assert app.banner.state() == "live"
+    # A prepared stream is not a live one. The banner used to wear the "live" accent
+    # here, which is what made "Directo preparado" look like "estás emitiendo".
+    assert app.banner.state() == "neutral"
     assert "Directo preparado" in app.banner.title_label.text()
     assert "desde las" in app.banner.detail_label.text()
+
+
+def test_the_banner_only_says_live_when_it_really_is(app):
+    """The bug the user hit: on air, still showing "prepared"."""
+
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._live_cycle = SessionCycle()
+    for state in (LiveState.PREPARING, LiveState.PREPARED, LiveState.WAITING_INGEST,
+                  LiveState.CONNECTING, LiveState.LIVE):
+        app._live_cycle.move_to(state, "test")
+
+    # The real path: this is what the watcher's signal triggers.
+    app._sync_live_state()
+
+    assert app.banner.state() == "live"
+    assert "EN VIVO" in app.banner.title_label.text()
+    assert app.live_state_badge.text() == "EN VIVO"
+    # The summary says it too, and only because the cycle says so — nothing here
+    # consults a clock to decide that enough time has passed.
+    assert "EN VIVO" in app.summary.value("session")
+
+
+def test_the_transition_is_visible_before_the_stream_is_live(app):
+    """Each step of the way has its own words, so nothing looks frozen."""
+
+    _validated(app)
+    app._active_session = StreamSession("session-1", "rtmp://server", "key")
+    app._live_cycle = SessionCycle()
+
+    seen = []
+    for state in (LiveState.PREPARING, LiveState.PREPARED, LiveState.WAITING_INGEST,
+                  LiveState.CONNECTING, LiveState.LIVE):
+        app._live_cycle.move_to(state, "test")
+        app._refresh_banner()
+        seen.append(app.banner.title_label.text())
+
+    assert seen[1] == "Directo preparado"
+    assert "Esperando señal de OBS" in seen[2]
+    assert "Iniciando transmisión" in seen[3]
+    assert seen[4] == "EN VIVO"
 
 
 def test_the_live_permission_is_never_shown_as_a_python_boolean(app):

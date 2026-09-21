@@ -31,6 +31,7 @@ from config_store import (
 )
 from diagnostics import build_report, default_report_path, issue_url, system_summary
 from errors import safe_error_message
+from live_state import LiveState, SessionCycle, elapsed_text
 from local_token import find_local_token, local_token_hint
 from logging_setup import log_directory, log_file_path
 from secure_store import SecureTokenStore, TokenStoreUnavailable
@@ -49,6 +50,7 @@ from ui.geometry import (
     restore_geometry,
     sanitized_geometry,
 )
+from ui.live_thread import LiveWatchThread
 from ui.shortcuts import install_shortcuts
 from ui.update_flow import UpdateFlowMixin
 from ui.window_ui import WindowUiMixin
@@ -135,6 +137,17 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         self._clipboard_timer.setSingleShot(True)
         self._clipboard_timer.setInterval(60_000)
         self._clipboard_timer.timeout.connect(self._clear_sensitive_clipboard)
+        # Every broadcast gets a brand new cycle and a brand new watch thread; these
+        # two fields are the only things that survive between streams, and both are
+        # replaced rather than reset.
+        self._live_cycle = SessionCycle()
+        self._live_generation = 0
+        self._watch: LiveWatchThread | None = None
+        # One second, so the on-air clock moves without asking the network anything.
+        self._live_timer = QTimer(self)
+        self._live_timer.setInterval(1000)
+        self._live_timer.timeout.connect(self._tick_live_elapsed)
+        self._live_timer.start()
 
         self.init_ui()
         self._shortcuts = install_shortcuts(self)
@@ -726,16 +739,117 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         )
         self._session_prompted = True
         self.save_config(False)
-        LOGGER.info("Streamlabs session started")
+        LOGGER.info(
+            "SESSION_CREATED · id=%s · broadcast=%s · canal=%s · region=%s",
+            session.session_id,
+            session.broadcast_id or "<sin id>",
+            session.channel_name or "<sin nombre>",
+            session.region or "<sin region>",
+        )
+        LOGGER.info(
+            "RTMP_CREDENTIALS_RECEIVED · url=%s · key=%s",
+            session.rtmp_url,
+            "presente" if session.stream_key else "ausente",
+        )
         self.stream_url.setText(session.rtmp_url)
         self.stream_key.setText(session.stream_key)
         self._set_status("Sesión preparada; configura OBS")
+        self._start_live_watch(session)
         self._update_controls()
         QMessageBox.information(
             self,
             "Directo preparado",
             "Sesión preparada. Copia la URL y la clave de retransmisión en OBS para comenzar.",
         )
+
+    def _start_live_watch(self, session: StreamSession) -> None:
+        """Begin watching this broadcast, replacing any watch left from before.
+
+        A new cycle is built here rather than reset, and the previous watch is
+        stopped first, so nothing about the stream that just ended — its identifiers,
+        its "live" flag, its timestamps, its thread — can reach this one.
+        """
+
+        self._stop_live_watch()
+        self._live_cycle = SessionCycle(
+            generation=self._live_generation + 1,
+            session_identity=session.identity(),
+            wall_started_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        self._live_generation += 1
+        self._live_cycle.move_to(LiveState.PREPARED, "credenciales recibidas")
+        self._watch = LiveWatchThread(
+            token=self._validated_token or "",
+            session=session,
+            cycle=self._live_cycle,
+            parent=self,
+        )
+        self._watch.cycle_changed.connect(
+            self._on_live_cycle_changed, Qt.ConnectionType.QueuedConnection
+        )
+        self._watch.start()
+        self._sync_live_state()
+
+    def _stop_live_watch(self) -> None:
+        """Stop watching, and forget the cycle it was watching.
+
+        Safe to call when nothing is being watched, and safe to call twice: it runs
+        from the end of a stream, from the window teardown, and from tests.
+        """
+
+        watch, self._watch = self._watch, None
+        if watch is not None:
+            watch.stop()
+
+    def _on_live_cycle_changed(self, cycle: Any) -> None:
+        """Redraw from a cycle the watcher just moved."""
+
+        if self._closing or not _widget_is_alive(self):
+            return
+        self._live_cycle = cycle
+        self._sync_live_state()
+
+    def _sync_live_state(self) -> None:
+        """Put the real state of the broadcast in front of the user.
+
+        Called on every change and on a one-second tick, so the elapsed time is
+        live and the state cannot sit stale while the user watches it.
+        """
+
+        cycle = self._live_cycle
+        state = cycle.state
+        self.live_state_badge.setText(cycle.label())
+        self.live_state_badge.setProperty("state", self._badge_state_for(state))
+        self.live_state_badge.style().unpolish(self.live_state_badge)
+        self.live_state_badge.style().polish(self.live_state_badge)
+
+        if state is LiveState.LIVE:
+            self.live_elapsed.setText(elapsed_text(cycle.elapsed_live()))
+            self.live_elapsed.setVisible(True)
+        else:
+            self.live_elapsed.setVisible(False)
+
+        # The summary answers in words, and only claims "en vivo" when the platform
+        # and the local socket both say so. Never from a clock.
+        self._sync_live_state_values()
+
+        self._refresh_banner()
+
+    @staticmethod
+    def _badge_state_for(state: LiveState) -> str:
+        if state is LiveState.LIVE:
+            return "ok"
+        if state in {LiveState.WAITING_INGEST, LiveState.CONNECTING}:
+            return "warn"
+        if state in {LiveState.ENDING, LiveState.ENDED}:
+            return "neutral"
+        return "neutral"
+
+    def _tick_live_elapsed(self) -> None:
+        """Keep the on-air timer moving without asking the network anything."""
+
+        if self._live_cycle.state is LiveState.LIVE:
+            self.live_elapsed.setText(elapsed_text(self._live_cycle.elapsed_live()))
 
     def end_stream(self) -> None:
         if not self._active_session or not self._validated_token:
@@ -775,13 +889,16 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self._closing_after_end = False
 
     def _stream_ended(self, _: Any = None) -> None:
+        self._stop_live_watch()
+        self._live_cycle = SessionCycle(generation=self._live_generation)
         self._active_session = None
         self._session_record = None
         self.save_config(False)
-        LOGGER.info("Streamlabs session ended")
+        LOGGER.info("LIVE_ENDED · la sesión de Streamlabs se cerró")
         self.stream_url.clear()
         self.stream_key.clear()
         self._set_status("Cuenta validada")
+        self._sync_live_state()
         self._update_controls()
         QMessageBox.information(
             self,
@@ -1278,9 +1395,28 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             self.summary.set_value("permission", "Sin comprobar", "neutral")
 
         if self._active_session is not None:
-            self.summary.set_value("session", "Directo preparado", "live")
+            # Left to the live state, which is the only thing that knows whether the
+            # broadcast is prepared, waiting or actually on air.
+            self._sync_live_state_values()
         else:
             self.summary.set_value("session", "Sin preparar", "neutral")
+
+    def _sync_live_state_values(self) -> None:
+        """Fill the summary's session cell from the live cycle, and nothing else."""
+
+        cycle = self._live_cycle
+        if cycle.state is LiveState.LIVE:
+            self.summary.set_value(
+                "session", f"EN VIVO {elapsed_text(cycle.elapsed_live())}", "live"
+            )
+        elif cycle.state is LiveState.CONNECTING:
+            self.summary.set_value("session", "Iniciando…", "warn")
+        elif cycle.state is LiveState.WAITING_INGEST:
+            self.summary.set_value("session", "Esperando OBS", "warn")
+        elif cycle.state in {LiveState.ENDING, LiveState.ENDED}:
+            self.summary.set_value("session", "Finalizando", "neutral")
+        else:
+            self.summary.set_value("session", "Directo preparado", "neutral")
 
     @staticmethod
     def _session_start_time(record: ActiveSession) -> str:
@@ -1308,15 +1444,44 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
             return ""
 
     def _refresh_banner(self) -> None:
-        """Put the state of the application into one sentence."""
+        """Put the state of the application into one sentence.
+
+        A session being open no longer means the banner says "prepared": that was
+        the bug the user saw, where a stream that was genuinely on air kept showing
+        the same words it showed before OBS connected. The banner now reports where
+        the broadcast actually is.
+        """
 
         if self._active_session is not None:
+            state = self._live_cycle.state
+            if state is LiveState.LIVE:
+                self._set_banner(
+                    "live",
+                    "EN VIVO",
+                    f"Emitiendo desde hace {elapsed_text(self._live_cycle.elapsed_live())}.",
+                )
+                return
+            if state is LiveState.CONNECTING:
+                self._set_banner(
+                    "warn",
+                    "Iniciando transmisión…",
+                    "OBS está enviando; confirmando el directo con TikTok.",
+                )
+                return
+            if state is LiveState.WAITING_INGEST:
+                self._set_banner(
+                    "warn",
+                    "Esperando señal de OBS…",
+                    "Pega la URL y la clave en OBS y empieza a emitir; el estado "
+                    "cambiará solo.",
+                )
+                return
             detail = "Copia la URL y la clave en OBS para empezar a emitir."
             if self._session_record is not None:
                 started = self._session_start_time(self._session_record)
                 if started:
                     detail = f"Sesión abierta desde las {started}. {detail}"
-            self._set_banner("live", "Directo preparado", detail)
+            self._set_banner("neutral", "Directo preparado", detail)
             return
 
         token = self.token_entry.text().strip()
@@ -1494,6 +1659,10 @@ class StreamApp(WindowUiMixin, DialogsMixin, UpdateFlowMixin, QMainWindow):
         # From here on, worker callbacks and deferred work must not touch the
         # widgets: Qt may deliver queued calls while the window is destroyed.
         self._closing = True
+        # The watcher holds a thread; it is stopped before anything else so it
+        # cannot emit into a window that is being torn down.
+        self._stop_live_watch()
+        self._live_timer.stop()
         # A pending browser login would otherwise keep a pool thread waiting for
         # up to five minutes and delay process shutdown.
         if self._online_retriever is not None:

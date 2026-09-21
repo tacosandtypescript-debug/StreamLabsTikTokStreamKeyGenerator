@@ -389,6 +389,31 @@ class WindowUiMixin:
         actions.addWidget(self.save_btn, 1)
         layout.addLayout(actions)
 
+        # The real state of the broadcast, with its own clock. It is separate from
+        # the summary because it changes on its own, with the user doing nothing,
+        # and a value that moves by itself needs somewhere the eye returns to.
+        live_card, live_layout = self._card("Estado del directo")
+        live_row = QHBoxLayout()
+        live_row.setSpacing(10)
+        self.live_state_badge = QLabel("Sin sesión")
+        self.live_state_badge.setObjectName("liveState")
+        self.live_state_badge.setProperty("state", "neutral")
+        live_row.addWidget(self.live_state_badge)
+        self.live_elapsed = QLabel("")
+        self.live_elapsed.setObjectName("liveElapsed")
+        self.live_elapsed.setVisible(False)
+        live_row.addWidget(self.live_elapsed)
+        live_row.addStretch(1)
+        live_layout.addLayout(live_row)
+        self.live_hint = QLabel(
+            "Cambia solo: mientras la sesión esté abierta, la aplicación vigila el "
+            "directo y avisa en cuanto OBS empieza a enviar."
+        )
+        self.live_hint.setObjectName("muted")
+        self.live_hint.setWordWrap(True)
+        live_layout.addWidget(self.live_hint)
+        layout.addWidget(live_card)
+
         # What decides whether the stream can be prepared, answered in one line so
         # the account page does not have to be opened to find out.
         self.summary = SummaryStrip(
