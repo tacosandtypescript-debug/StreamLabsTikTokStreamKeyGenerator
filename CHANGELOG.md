@@ -2,6 +2,17 @@
 
 ## Sin publicar
 
+### Corregido
+
+- **La ventana se redimensionaba sola unos segundos después de moverla.** Qt manda
+  `showEvent` otra vez cada vez que una ventana se muestra tras estar oculta
+  —restaurada de la barra de tareas, des-minimizada— y el ajuste inicial corría en
+  todas ellas, devolviendo la ventana al tamaño de su contenido. Medido: se pedía
+  `700x620` y a los cinco segundos volvía a `700x969` por su cuenta.
+- **La ventana vuelve a ajustarse a su contenido**, que es lo que debe hacer: al
+  validar la cuenta aparece la tarjeta del perfil, y al abrir la lista de categorías
+  crece. Antes solo se medía una vez, así que lo que llegaba después se recortaba.
+
 ### Añadido
 
 - **Guía de primeros pasos dentro de la aplicación.** Al abrirla por primera vez

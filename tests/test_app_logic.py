@@ -935,30 +935,80 @@ def test_both_pages_can_be_reached(app):
     assert app.current_page() == PAGE_STREAM
 
 
-def test_the_window_opens_at_its_content_size_but_can_be_resized(app):
-    # Resizable, so a long biography or a narrow screen is something the user can
-    # do something about, but it still opens exactly as big as its content.
+def test_the_window_is_sized_by_its_content_and_not_by_the_user(app):
+    """Fixed: exactly as big as what it has to show.
+
+    It is not something to be resized by hand — it fits itself, and it grows on its
+    own when the content grows.
+    """
+
     assert app.minimumSize().width() < app.maximumSize().width()
-    assert app.minimumSize().height() < app.maximumSize().height()
     # Phone-shaped: narrow and tall, so it can sit beside OBS.
     assert app.width() >= 430
-    assert app.height() > app.width()
-    # And never narrower than the fields need to stay readable.
+    # Never narrower than the fields need to stay readable.
     assert app.minimumWidth() >= 430
 
 
-def test_a_window_the_user_sized_is_not_resized_back(app, qtbot, monkeypatch):
-    """Measuring again must move the minimum, never the size on screen."""
+def test_the_window_fits_itself_to_the_content(app, qtbot, monkeypatch):
+    """Fixed size, set by the content and not by the user.
+
+    The window is not something to be sized: it is exactly as big as what it shows.
+    """
 
     monkeypatch.setattr(app, "available_height", lambda: 2000)
     app.show()
     qtbot.wait(80)
-    chosen = (app.width() + 120, app.height() + 90)
+    fitted = (app.width(), app.height())
 
-    app.resize(*chosen)
+    # Whatever the user does to the frame, the next measurement puts it back.
+    app.resize(900, 400)
     app._apply_window_size()
 
-    assert (app.width(), app.height()) == chosen
+    assert (app.width(), app.height()) == fitted
+
+
+def test_the_window_grows_when_the_content_grows(app, qtbot, monkeypatch):
+    """A validated account brings a profile card, and the window has to fit it."""
+
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    app.show()
+    qtbot.wait(80)
+    before = app.height()
+
+    app._apply_profile(
+        profile_store.Profile(
+            username="creator",
+            display_name="Creator",
+            followers="1702",
+            likes="1K",
+            bio="Una biografia que ocupa sitio en la tarjeta del perfil.",
+        )
+    )
+    app._apply_window_size()
+    qtbot.wait(40)
+
+    assert app.height() > before
+
+
+def test_showing_the_window_again_does_not_change_its_size(app, qtbot, monkeypatch):
+    """Qt sends ``showEvent`` again when a window is restored from the taskbar.
+
+    The initial sizing used to run on every one of those, so the window snapped
+    back to its size some seconds after the user had resized it — which looked like
+    the window growing on its own.
+    """
+
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    app.show()
+    qtbot.wait(80)
+    fitted = (app.width(), app.height())
+
+    app.hide()
+    qtbot.wait(20)
+    app.show()
+    qtbot.wait(80)
+
+    assert (app.width(), app.height()) == fitted
 
 
 # --------------------------------------------------------------------------- #
@@ -1427,16 +1477,25 @@ def test_with_room_to_spare_there_is_nothing_to_scroll(app, qtbot, monkeypatch):
     assert app.height() > 380
 
 
-def test_the_scrollbar_does_not_hide_anything(app, monkeypatch):
-    monkeypatch.setattr(app, "available_height", lambda: 2000)
-    app._apply_window_size()
-    ancho_con_espacio = app.width()
+def test_the_scrollbar_does_not_hide_anything(app, qtbot, monkeypatch):
+    """When the screen forces a scrollbar, the window gets that width back.
 
+    The bar takes width from the viewport, so a window that did not account for it
+    would leave the right-hand edge of every field under the bar.
+    """
+
+    monkeypatch.setattr(app, "available_height", lambda: 2000)
+    app.show()
+    qtbot.wait(80)
+    ancho_sin_barra = app.width()
+
+    # A screen too short for the content: the pages must scroll, so the bar appears.
     monkeypatch.setattr(app, "available_height", lambda: 400)
     app._apply_window_size()
+    qtbot.wait(40)
 
-    # The bar takes width from the viewport, so the window gets it back.
-    assert app.width() > ancho_con_espacio
+    assert app.scroll.verticalScrollBar().maximum() > 0
+    assert app.width() > ancho_sin_barra
 
 
 def test_without_a_screen_to_ask_the_window_keeps_its_content_size(app, monkeypatch):

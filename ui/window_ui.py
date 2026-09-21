@@ -162,19 +162,25 @@ class WindowUiMixin:
         self._apply_window_size()
 
     def showEvent(self, event: Any) -> None:
-        """Size the window once, now that the style has reached every widget.
+        """Size the window once, the first time it is shown.
 
         While the widgets are hidden Qt has not applied the final fonts and has not
-        wrapped the labels, so a measurement taken then is only an approximation —
-        and if it were latched in as the final size, the window would open short and
-        scroll over content that fits. The measurement that counts is this one, taken
-        as the window appears, and one more as soon as the event loop runs, by which
-        point every deferred layout has been applied.
+        wrapped the labels, so a measurement taken then is only an approximation, and
+        latching it in would open the window short and scroll over content that fits.
+        The measurement that counts is the one taken as the window first appears.
+
+        It must happen **only once**. Qt sends this event again whenever the window
+        is shown after being hidden — restored from the taskbar, un-minimised — and
+        resizing on those occasions would undo the size the user had chosen, which
+        looked like the window growing by itself some seconds after being resized.
         """
 
         super().showEvent(event)
+        if self._initial_size_applied:
+            # Shown again after being hidden: the size is already the content's, so
+            # there is nothing to redo and nothing to undo.
+            return
         self._apply_window_size(initial=True)
-        self._initial_size_applied = True
 
     # ------------------------------------------------------------------ pages
 
@@ -248,12 +254,14 @@ class WindowUiMixin:
         return width, content_height + self._chrome_height()
 
     def _apply_window_size(self, *, initial: bool = False) -> None:
-        """Set the minimum the content needs and, once, the size it asks for.
+        """Fit the window to its content, and keep it there.
 
-        The window is resizable, so this no longer freezes it: it records the
-        smallest size at which nothing is clipped and opens the window at its
-        natural size the first time. Later measurements only move the minimum, so a
-        size the user chose is never taken away from them.
+        The window is **fixed**: it is exactly as big as what it has to show, it
+        grows on its own when the content grows — a validated account, a fetched
+        biography, an opened suggestion list — and it is not something the user has
+        to size. That is why it is measured again on every change instead of only
+        once: a fixed window that forgot to re-measure would clip whatever arrived
+        later.
 
         The result never exceeds what the screen offers: a 1080p laptop at 150% of
         scaling leaves about 690 logical pixels, and a window taller than the screen
@@ -265,23 +273,24 @@ class WindowUiMixin:
         available = self.available_height()
 
         # The floors are fixed, not measured. A minimum taken from the measured
-        # content would rise as the window narrows — narrower means taller — which
-        # would make the window refuse to be narrowed at all, and a minimum equal to
-        # the measured height leaves the page nothing to do but scroll even at the
-        # size it asked for.
+        # content would rise as the window narrows, which would make the window
+        # refuse to be narrowed at all.
         self.setMinimumSize(MINIMUM_CONTENT_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
-        # Only the pass taken while the window is actually on screen is a final
-        # answer; while the widgets are still hidden the measurement is an
-        # approximation and sizing to it would open the window short.
-        if self._initial_size_applied and not initial:
-            return
         height = clamped_height(window_height, available)
         if height < window_height:
             # The bar takes width from the viewport: give it back, so nothing ends
             # up hidden under the scrollbar.
             width += self.scroll.verticalScrollBar().sizeHint().width()
-        self.resize(width, height)
+
+        # While the widgets are still hidden the measurement is an approximation, so
+        # the first pass only records the minimum; the one taken as the window
+        # appears is the one that decides the size.
+        if not self._initial_size_applied and not initial:
+            return
+        self._initial_size_applied = True
+        if (self.width(), self.height()) != (width, height):
+            self.resize(width, height)
 
     @staticmethod
     def _page_height(page: QWidget, width: int) -> int:
