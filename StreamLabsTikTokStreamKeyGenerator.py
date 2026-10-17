@@ -564,18 +564,52 @@ class StreamApp(QMainWindow):
         self._sync_controls()
 
     def load_config(self):
-        try:
-            with open(self.config_path, "r") as file:
-                data = json.load(file)
-        except:
+        data = self._read_config()
+        if data is None:
+            self._quarantine_config()
             data = {}
-        self._saved_session = data.get("session")
-        self.token_entry.setText(data.get("token", ""))
-        self.stream_title.setText(data.get("title", ""))
-        self.game_category.setText(data.get("game", ""))
-        self.mature_checkbox.setChecked(data.get("audience_type", "0") == "1")
+        self._saved_session = data.get("session") if isinstance(data.get("session"), dict) else None
+        self.token_entry.setText(self._config_text(data.get("token")))
+        self.stream_title.setText(self._config_text(data.get("title")))
+        self.game_category.setText(self._config_text(data.get("game")))
+        audience = data.get("audience_type", "0")
+        self.mature_checkbox.setChecked(str(audience).lower() in ("1", "true"))
 
         self.refresh_account_info()
+
+    @staticmethod
+    def _config_text(value):
+        return value if isinstance(value, str) else ""
+
+    def _read_config(self):
+        """Return a validated config dict, or None when the file is corrupt."""
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        text_fields = ("token", "title", "game", "audience_type")
+        if any(key in data and not isinstance(data[key], str) for key in text_fields):
+            return None
+        if "session" in data and not isinstance(data["session"], dict):
+            return None
+        return data
+
+    def _quarantine_config(self):
+        """Keep a copy of an unreadable config so startup can continue."""
+        backup = self.config_path + ".bak"
+        try:
+            os.replace(self.config_path, backup)
+        except OSError:
+            return False
+        self.live_status.setText(
+            "La configuración guardada estaba dañada. Se conservó una copia en config.json.bak."
+        )
+        return True
 
     def save_config(self, show_message=True):
         data = {
