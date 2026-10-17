@@ -18,6 +18,12 @@ class TokenRetriever:
         self.code_challenge = self._generate_code_challenge(self.code_verifier)
         self._auth_code: str | None = None
         self._server_event = threading.Event()
+        self.cancelled = threading.Event()
+        self.last_error = ""
+
+    def cancel(self):
+        self.cancelled.set()
+        self._server_event.set()
 
     # ------------------------------------------------------------------ #
     #  PKCE helpers                                                        #
@@ -55,7 +61,13 @@ class TokenRetriever:
 
         class _CallbackHandler(BaseHTTPRequestHandler):
             def do_GET(self):
+                if retriever.cancelled.is_set():
+                    self.send_error(410)
+                    return
                 parsed = urlparse(self.path)
+                if parsed.path != "/":
+                    self.send_error(404)
+                    return
                 params = parse_qs(parsed.query)
 
                 if params.get("success", [""])[0] == "true" and "code" in params:
@@ -83,16 +95,23 @@ class TokenRetriever:
         return _CallbackHandler
 
     def _start_callback_server(self, port: int) -> HTTPServer:
-        server = HTTPServer(("127.0.0.1", port), self._make_handler())
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        class CallbackServer(HTTPServer):
+            def get_request(self):
+                connection, address = super().get_request()
+                connection.settimeout(1)
+                return connection, address
+        server = CallbackServer(("127.0.0.1", port), self._make_handler())
+        server.timeout = .2
+        thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.1), daemon=True)
         thread.start()
+        server.callback_thread = thread
         return server
 
     # ------------------------------------------------------------------ #
     #  Main entry point                                                    #
     # ------------------------------------------------------------------ #
 
-    def retrieve_token(self, timeout: int = 300) -> str | None:
+    def retrieve_token(self, timeout: int = 300, browser_opener=None) -> str | None:
         """
         Open the Streamlabs login page in the user's default browser, wait for
         the OAuth callback on a local server, then exchange the code for a token.
@@ -103,7 +122,12 @@ class TokenRetriever:
         Returns:
             The oauth_token string on success, or None on failure.
         """
-        port = self._find_free_port()
+        if self.cancelled.is_set():
+            return None
+        # Bind directly to port zero; another process cannot claim the port
+        # between discovery and starting the callback server.
+        server = self._start_callback_server(0)
+        port = server.server_address[1]
 
         auth_url = (
             f"https://streamlabs.com/slobs/login?"
@@ -112,23 +136,28 @@ class TokenRetriever:
             f"&code_challenge={self.code_challenge}&code_flow=true"
         )
 
-        server = self._start_callback_server(port)
-
-        print(f"Opening browser for Streamlabs login (callback on port {port})…")
-        webbrowser.open(auth_url)
-
-        completed = self._server_event.wait(timeout=timeout)
-        threading.Thread(target=server.shutdown, daemon=True).start()
-
-        if not completed:
-            print("Timed out waiting for the user to complete login.")
+        try:
+            opener = browser_opener or webbrowser.open
+            if not self.cancelled.is_set() and not opener(auth_url):
+                self.last_error = "No se pudo abrir el navegador predeterminado. Configúralo y vuelve a intentar."
+                return None
+            completed = self._server_event.wait(timeout=timeout)
+            if self.cancelled.is_set():
+                return None
+            if not completed:
+                self.last_error = "Se agotó el tiempo de inicio de sesión. Puedes reintentar."
+                return None
+            if not self._auth_code:
+                self.last_error = "El navegador no confirmó el inicio de sesión. Puedes reintentar."
+                return None
+        finally:
+            server.shutdown()
+            server.server_close()
+            server.callback_thread.join(timeout=2)
+        if self.cancelled.is_set():
             return None
-
-        if not self._auth_code:
-            print("Callback received but no auth code was present.")
-            return None
-
-        return self._exchange_code_for_token(self._auth_code)
+        token = self._exchange_code_for_token(self._auth_code)
+        return None if self.cancelled.is_set() else token
 
     # ------------------------------------------------------------------ #
     #  Token exchange                                                      #
@@ -161,24 +190,26 @@ class TokenRetriever:
                 headers=headers,
                 timeout=30,
             )
-        except requests.RequestException as e:
-            print(f"Network error during token exchange: {e}")
+        except requests.RequestException:
+            self.last_error = "No se pudo completar el inicio de sesión con Streamlabs."
             return None
 
         if response.status_code != 200:
-            print(f"Token exchange failed: HTTP {response.status_code} — {response.text}")
+            self.last_error = f"Streamlabs rechazó el inicio de sesión (HTTP {response.status_code})."
             return None
 
         try:
             data = response.json()
-        except json.JSONDecodeError:
-            print("Token exchange returned non-JSON response.")
+        except ValueError:
+            self.last_error = "Streamlabs devolvió una respuesta de inicio de sesión no válida."
             return None
 
-        if not data.get("success"):
-            print(f"Streamlabs reported failure: {data}")
+        if not isinstance(data, dict) or not data.get("success") or not isinstance(data.get("data"), dict):
+            self.last_error = "Streamlabs no confirmó el inicio de sesión."
             return None
 
         token = data["data"].get("oauth_token")
-        print(f"Got Streamlabs OAuth token: {token}")
+        if not isinstance(token, str) or not token.strip():
+            self.last_error = "Streamlabs no devolvió credenciales válidas."
+            return None
         return token
