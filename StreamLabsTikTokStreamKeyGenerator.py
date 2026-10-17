@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
                               QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame,
                               QScrollArea)
-from PySide6.QtCore import Signal, QTimer, Qt, QUrl
+from PySide6.QtCore import Signal, QTimer, Qt, QUrl, QLockFile
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QDesktopServices, QIcon
 from Stream import Stream
 from TokenRetriever import TokenRetriever
@@ -58,6 +59,66 @@ def default_config_path():
     except OSError:
         pass
     return os.path.abspath(fallback)
+
+
+def instance_key():
+    digest = hashlib.sha256(os.path.abspath(default_config_path()).encode()).hexdigest()[:16]
+    return "fpv-stream-" + digest
+
+
+class SingleInstance:
+    """One generator per config file; ask the existing window to come forward."""
+
+    def __init__(self, key):
+        self.key = key
+        self.lock = QLockFile(os.path.join(tempfile.gettempdir(), key + ".lock"))
+        self.server = None
+        self._activation = None
+        self._pending_activation = False
+
+    def acquire(self):
+        if not self.lock.tryLock(100):
+            return False
+        self.server = QLocalServer()
+        self.server.setSocketOptions(QLocalServer.UserAccessOption)
+        QLocalServer.removeServer(self.key)
+        self.server.listen(self.key)
+        self.server.newConnection.connect(self._activate)
+        return True
+
+    def on_activation(self, callback):
+        self._activation = callback
+        if self._pending_activation:
+            self._pending_activation = False
+            callback()
+
+    def notify_existing(self):
+        socket = QLocalSocket()
+        socket.connectToServer(self.key)
+        if not socket.waitForConnected(300):
+            return False
+        socket.write(b"activate")
+        socket.flush()
+        socket.waitForBytesWritten(300)
+        socket.disconnectFromServer()
+        return True
+
+    def _activate(self):
+        while self.server is not None and self.server.hasPendingConnections():
+            connection = self.server.nextPendingConnection()
+            connection.waitForReadyRead(200)
+            connection.readAll()
+            connection.disconnectFromServer()
+        if self._activation is not None:
+            self._activation()
+        else:
+            self._pending_activation = True
+
+    def close(self):
+        if self.server is not None:
+            self.server.close()
+            self.server = None
+        self.lock.unlock()
 
 BRAND_COLORS = {
     "red": "#DF2531",
@@ -1236,8 +1297,27 @@ class StreamApp(QMainWindow):
     def handle_ui_update(self):
         self.load_account_info()
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
-    window = StreamApp()
-    window.show()
-    sys.exit(app.exec())
+    instance = SingleInstance(instance_key())
+    if not instance.acquire():
+        if not instance.notify_existing():
+            QMessageBox.information(None, "FPV Stream", "Ya hay otra instancia abierta.")
+        return 0
+    try:
+        window = StreamApp()
+
+        def activate():
+            window.showNormal()
+            window.raise_()
+            window.activateWindow()
+
+        instance.on_activation(activate)
+        window.show()
+        return app.exec()
+    finally:
+        instance.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

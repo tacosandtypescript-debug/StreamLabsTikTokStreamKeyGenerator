@@ -21,6 +21,9 @@ This application is a simple tool that generates a TikTok Live Stream Key for OB
 4. Click on "Guardar configuración" button to save the token, title and category.
 5. Click on the "Preparar transmisión" button.
 
+Solo puede haber una instancia abierta por archivo de configuración: si abres otra,
+se enfoca la ventana existente para evitar dos escritores del token.
+
 ### Cambiar cuenta
 
 Pulsa **Cambiar cuenta** para borrar del generador el token, el usuario y las claves

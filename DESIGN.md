@@ -74,6 +74,8 @@ on a worker and deliver results through a Qt signal; no worker touches widgets.
 Busy state disables duplicate mutations and account switching. An uncertain start
 cannot be repeated automatically. A failed End retains the session ID and offers
 retry. Neither HTTP 404 nor an unconfirmed response counts as confirmed closure.
+Only one generator may run per config file; a second launch asks the existing
+window to come forward instead of allowing two writers.
 
 Persist pending state and the session ID before dispatching a lifecycle request,
 bound to the account fingerprint, so restart cannot silently forget a pending
