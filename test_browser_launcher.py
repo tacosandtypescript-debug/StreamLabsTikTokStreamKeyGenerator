@@ -47,5 +47,6 @@ class BrowserLauncherTests(unittest.TestCase):
                 self.assertFalse(open_browser(URL))
 
     def test_launcher_errors_are_reported_as_failure(self):
-        with patch("BrowserLauncher.webbrowser.open", side_effect=OSError):
+        with patch("BrowserLauncher.webbrowser.open", side_effect=OSError), \
+             patch("BrowserLauncher._launch_visible_window", return_value=False):
             self.assertFalse(open_browser(URL))
