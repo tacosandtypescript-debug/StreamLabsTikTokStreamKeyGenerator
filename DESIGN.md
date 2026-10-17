@@ -50,7 +50,7 @@ animation, font or dependency.
 | Dialog | Native QMessageBox, default Cancel for uncertain-state recovery | GUI cancellation test |
 | Search | QTimer debounce, generation check, one in-flight request | Stale-result GUI test |
 | Brand chrome | branding/fpv-stream-logo.svg, StreamApp._apply_brand_theme | UI smoke test and Qt icon load |
-| Scroll/control chrome | Platform QStyle | Qt offscreen screenshots |
+| Scroll/control chrome | QScrollArea + platform QStyle | 800×600 scroll test and Qt offscreen screenshots |
 
 ## Status and visual language
 

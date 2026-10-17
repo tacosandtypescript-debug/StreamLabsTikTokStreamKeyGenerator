@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QScrollArea
 from Stream import Stream
 from TokenRetriever import TokenRetriever
 from StreamLabsTikTokStreamKeyGenerator import StreamApp
@@ -67,6 +67,20 @@ class AppTests(unittest.TestCase):
         self.client.s.post.return_value = response(payload={"id": "session-1", "rtmp": "rtmps://example.invalid/app", "key": "unit-key"})
         self.window.start_stream()
         self.wait_for(lambda: not self.window._api_busy)
+
+    def test_small_window_scrolls_instead_of_clipping_content(self):
+        self.window.resize(800, 600)
+        self.window.show()
+        self.app.processEvents()
+        self.window.login_status.setText(
+            "Se agotó el tiempo de inicio de sesión. Puedes reintentar. No hay ninguna cuenta cargada."
+        )
+        self.window.suggestions_list.addItems(["Categoría uno", "Categoría dos"])
+        self.window.suggestions_list.setVisible(True)
+        self.app.processEvents()
+        scroll = self.window.centralWidget()
+        self.assertIsInstance(scroll, QScrollArea)
+        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
 
     def test_online_cancel_restores_retry_and_ignores_stale_completion(self):
         first = TokenRetriever()

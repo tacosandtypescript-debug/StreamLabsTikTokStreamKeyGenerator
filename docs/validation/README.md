@@ -23,7 +23,8 @@ its result rather than starting another request with the same identity.
 The screenshots use synthetic credentials and the real Qt widgets, rendered
 offscreen with the installed Segoe UI font. No account settings were loaded.
 Reviewed at 1000×760 (prepared) and 800×600 (uncertain): status text wraps,
-the recovery action has reserved space, and credentials remain masked.
+the recovery action has reserved space, credentials remain masked, and the
+central content scrolls instead of overlapping when the window is short.
 Regenerate them with `.venv/Scripts/python.exe render_validation_screenshots.py`.
 
 - [Prepared session](generator-prepared.png)

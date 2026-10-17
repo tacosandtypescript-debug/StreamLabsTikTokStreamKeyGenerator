@@ -10,7 +10,8 @@ import hashlib
 import tempfile
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
-                              QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame)
+                              QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame,
+                              QScrollArea)
 from PySide6.QtCore import Signal, QTimer, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
 from Stream import Stream
@@ -98,7 +99,12 @@ class StreamApp(QMainWindow):
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(10)
         main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setWidget(main_widget)
+        self.setCentralWidget(self.scroll_area)
 
         brand_header = QWidget()
         brand_header_layout = QHBoxLayout(brand_header)
