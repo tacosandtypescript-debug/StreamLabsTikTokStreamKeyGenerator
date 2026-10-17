@@ -94,6 +94,20 @@ class StreamTests(unittest.TestCase):
         self.client.start("Test", "")
         self.assertNotIn("PRIVATE VALUE", self.client.last_error)
 
+    def test_explicit_rejection_is_not_uncertain_and_allows_retry(self):
+        self.client.s.post.return_value = response(payload={"success": False})
+        self.assertEqual(self.client.start("Test", ""), (None, None))
+        self.assertFalse(self.client.session_uncertain)
+        self.assertTrue(self.client.last_error)
+        self.client.s.post.return_value = response(
+            payload={"id": "session-2", "rtmp": "rtmps://example.invalid/app", "key": "key"}
+        )
+        self.assertEqual(
+            self.client.start("Test", ""),
+            ("rtmps://example.invalid/app", "key"),
+        )
+        self.assertEqual(self.client.id, "session-2")
+
     def test_bad_json_drops_stale_payload(self):
         self.client.last_response = {"id": "old"}
         self.client.s.get.return_value = response(raw="not-json")

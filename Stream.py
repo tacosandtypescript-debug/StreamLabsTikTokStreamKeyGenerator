@@ -9,6 +9,7 @@ class Stream:
         self.last_error = ""
         self.last_response = {}
         self.last_status = None
+        self.last_rejected = False
         self.session_uncertain = False
         self._lock = threading.RLock()
         self.s = requests.session()
@@ -21,6 +22,7 @@ class Stream:
         """Return a safe API payload and keep a useful error for the UI."""
         self.last_error = ""
         self.last_response = {}
+        self.last_rejected = False
         self.last_status = response.status_code
         if response.status_code == 204:
             return {}
@@ -46,12 +48,14 @@ class Stream:
             # Remote messages may echo a token or publication key. Never send
             # arbitrary response bodies to the UI, console or exception logs.
             self.last_error = "Streamlabs rechazó la operación."
+            self.last_rejected = True
         return self.last_response
 
     def _request(self, method, url, **kwargs):
         self.last_error = ""
         self.last_response = {}
         self.last_status = None
+        self.last_rejected = False
         try:
             return self._json(getattr(self.s, method)(url, timeout=30, **kwargs))
         except requests.Timeout:
@@ -108,8 +112,14 @@ class Stream:
         if self.last_error or not self.id or not valid_credentials:
             # A timeout or an incomplete successful response can hide a created
             # remote session. Do not dispatch another non-idempotent start.
-            self.session_uncertain = bool(self.id) or self.last_status is None or (
-                self.last_status >= 500 or 200 <= self.last_status < 300)
+            # An explicit success:false is a definite rejection, not uncertainty.
+            self.session_uncertain = bool(self.id) or (
+                not self.last_rejected and (
+                    self.last_status is None
+                    or self.last_status >= 500
+                    or 200 <= self.last_status < 300
+                )
+            )
             if not self.last_error:
                 self.last_error = "Streamlabs no devolvió una sesión válida"
             return None, None
