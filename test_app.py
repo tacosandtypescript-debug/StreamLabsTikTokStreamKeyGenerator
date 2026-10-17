@@ -257,7 +257,7 @@ class AppTests(unittest.TestCase):
             self.assertFalse(self.window.stream_url.text())
             self.assertIsNone(self.window._saved_session)
 
-        with patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)), \
+        with patch.object(self.window, 'save_config', side_effect=lambda show, data=None: type(self).real_save(self.window, show, data)), \
              patch.object(self.window, 'fetch_online_token', side_effect=verify_cleared_before_launch) as launch:
             self.window.change_account_btn.click()
         launch.assert_called_once()
@@ -295,7 +295,7 @@ class AppTests(unittest.TestCase):
 
     def test_change_account_cancel_keeps_previous_account_removed(self):
         with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', return_value=True), \
-             patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)):
+             patch.object(self.window, 'save_config', side_effect=lambda show, data=None: type(self).real_save(self.window, show, data)):
             self.window.change_account_btn.click()
             retriever = self.window._online_retriever
             self.window.cancel_login_btn.click()
@@ -314,7 +314,7 @@ class AppTests(unittest.TestCase):
         })
         with patch('StreamLabsTikTokStreamKeyGenerator.TokenRetriever.retrieve_token', return_value='new-unit-token'), \
              patch('StreamLabsTikTokStreamKeyGenerator.Stream', return_value=new_client), \
-             patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)):
+             patch.object(self.window, 'save_config', side_effect=lambda show, data=None: type(self).real_save(self.window, show, data)):
             self.window.change_account_btn.click()
             self.wait_for(lambda: self.window.tiktok_username.text() == 'new-user' and not self.window._api_busy)
         self.assertIs(self.window.stream, new_client)
@@ -340,6 +340,8 @@ class AppTests(unittest.TestCase):
         launch.assert_not_called()
         self.assertTrue(self.window.change_account_btn.isEnabled())
         self.assertIn('No se pudo borrar', self.window.login_status.text())
+        self.assertEqual(self.window.token_entry.text(), 'unit-account-token')
+        self.assertIs(self.window.stream, self.client)
         with patch('StreamLabsTikTokStreamKeyGenerator.TokenRetriever') as retriever:
             self.window.fetch_online_token()
         retriever.assert_not_called()

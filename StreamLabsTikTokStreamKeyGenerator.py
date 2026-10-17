@@ -716,17 +716,18 @@ class StreamApp(QMainWindow):
         )
         return True
 
-    def save_config(self, show_message=True):
-        data = {
-            "title": self.stream_title.text(),
-            "game": self.game_category.text(),
-            "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
-            "token": self.token_entry.text()
-        }
-        if self.stream and (self.stream.id or self.stream.session_uncertain or
-                            self._api_busy and self._pending_operation in ("start", "end")):
-            data["session"] = {"id": self.stream.id, "uncertain": self.stream.session_uncertain or self._api_busy,
-                               "account": hashlib.sha256(self._client_token.encode()).hexdigest()}
+    def save_config(self, show_message=True, data=None):
+        if data is None:
+            data = {
+                "title": self.stream_title.text(),
+                "game": self.game_category.text(),
+                "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
+                "token": self.token_entry.text()
+            }
+            if self.stream and (self.stream.id or self.stream.session_uncertain or
+                                self._api_busy and self._pending_operation in ("start", "end")):
+                data["session"] = {"id": self.stream.id, "uncertain": self.stream.session_uncertain or self._api_busy,
+                                   "account": hashlib.sha256(self._client_token.encode()).hexdigest()}
         temporary = None
         try:
             directory = os.path.dirname(self.config_path)
@@ -828,6 +829,23 @@ class StreamApp(QMainWindow):
             return
 
         self.cancel_online_login()
+        cleared = {
+            "title": self.stream_title.text(),
+            "game": self.game_category.text(),
+            "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
+            "token": "",
+        }
+        # Persist the empty identity before clearing the widgets, so a failed
+        # write leaves the previous in-memory account usable.
+        if self.save_config(False, data=cleared) is False:
+            self._account_clear_failed = True
+            self.login_status.setText(
+                "No se pudo borrar la cuenta guardada. Comprueba los permisos de la carpeta y vuelve a intentar."
+            )
+            self._sync_controls()
+            return
+        self._account_clear_failed = False
+
         self._account_generation += 1
         self._search_timer.stop()
         self._search_generation += 1
@@ -855,16 +873,6 @@ class StreamApp(QMainWindow):
         self.load_local_btn.setText("Cargar desde el PC")
         self._account_cleared = True
         self._set_live_state("offline", "No hay ninguna cuenta cargada.")
-
-        # Clear the saved identity before another browser login can complete.
-        if self.save_config(False) is False:
-            self._account_clear_failed = True
-            self.login_status.setText(
-                "No se pudo borrar la cuenta guardada. Comprueba los permisos de la carpeta y vuelve a intentar."
-            )
-            self._sync_controls()
-            return
-        self._account_clear_failed = False
         self.fetch_online_token()
 
     def _finish_api(self, outcome):
