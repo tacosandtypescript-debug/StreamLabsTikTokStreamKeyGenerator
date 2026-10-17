@@ -96,6 +96,7 @@ class StreamApp(QMainWindow):
         self._can_go_live = False
         self._saved_session = None
         self._online_retriever = None
+        self._pending_token = None
         self._account_generation = 0
         self._account_cleared = False
         self._account_clear_failed = False
@@ -780,6 +781,7 @@ class StreamApp(QMainWindow):
         self._can_go_live = False
         self._api_busy = False
         self._pending_operation = None
+        self._pending_token = None
         self.token_entry.clear()
         self.token_entry.setEchoMode(QLineEdit.Password)
         self.toggle_token_btn.setText("Ver")
@@ -840,6 +842,10 @@ class StreamApp(QMainWindow):
                 self._set_live_state("uncertain", error or "No se confirmó el cierre. Revisa Live Monitor o vuelve a intentar finalizar la transmisión.")
         self.save_config(False)
         self._sync_controls()
+        if self._pending_token and not self._api_busy:
+            token, message = self._pending_token
+            self._pending_token = None
+            self._apply_token(token, success_message=message)
 
     def load_account_info(self):
         if self.stream and not self._api_busy:
@@ -1031,16 +1037,25 @@ class StreamApp(QMainWindow):
         self._online_retriever = None
         self._sync_controls()
         if token and not retriever.cancelled.is_set():
-            self.login_status.setText("Inicio de sesión completado.")
-            self._apply_token(token)
+            self._apply_token(token, success_message="Inicio de sesión completado.")
         else:
             message = retriever.last_error or "No se completó el inicio de sesión. Puedes reintentar."
             self.login_status.setText(message + (" No hay ninguna cuenta cargada." if self._account_cleared else ""))
 
-    def _apply_token(self, token: str):
+    def _apply_token(self, token: str, success_message: str = ""):
         """Apply a freshly retrieved token — always called on the GUI thread."""
-        if self._api_busy or self.stream and (self.stream.id or self.stream.session_uncertain):
+        if self._api_busy:
+            self._pending_token = (token, success_message)
+            prefix = success_message + " " if success_message else ""
+            self.login_status.setText(prefix + "Se aplicará al terminar la solicitud en curso.")
             return
+        if self.stream and (self.stream.id or self.stream.session_uncertain):
+            self.login_status.setText(
+                "Hay una sesión abierta; finalízala antes de aplicar la nueva cuenta."
+            )
+            return
+        if success_message:
+            self.login_status.setText(success_message)
         self.token_entry.setText(token)
         self._account_cleared = False
         self.refresh_account_info()

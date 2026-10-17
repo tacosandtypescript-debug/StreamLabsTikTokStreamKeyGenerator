@@ -82,6 +82,17 @@ class AppTests(unittest.TestCase):
         self.assertIsInstance(scroll, QScrollArea)
         self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
 
+    def test_token_is_queued_while_api_is_busy(self):
+        self.window._api_busy = True
+        self.window._apply_token("queued-token", success_message="Inicio de sesión completado.")
+        self.assertEqual(self.window.token_entry.text(), "unit-account-token")
+        self.assertIn("Se aplicará", self.window.login_status.text())
+        with patch.object(self.window, "refresh_account_info"):
+            self.window._api_busy = False
+            self.window._finish_api((self.client, "info", {"can_be_live": True}, ""))
+        self.assertEqual(self.window.token_entry.text(), "queued-token")
+        self.assertIsNone(self.window._pending_token)
+
     def test_online_cancel_restores_retry_and_ignores_stale_completion(self):
         first = TokenRetriever()
         self.window._online_retriever = first
