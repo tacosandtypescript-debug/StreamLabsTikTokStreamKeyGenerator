@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import base64
+import secrets
 import socket
 import threading
 import webbrowser
@@ -16,7 +17,9 @@ class TokenRetriever:
     def __init__(self):
         self.code_verifier = self._generate_code_verifier()
         self.code_challenge = self._generate_code_challenge(self.code_verifier)
+        self.state = secrets.token_urlsafe(24)
         self._auth_code: str | None = None
+        self._callback_error = ""
         self._server_event = threading.Event()
         self.cancelled = threading.Event()
         self.last_error = ""
@@ -69,6 +72,17 @@ class TokenRetriever:
                     self.send_error(404)
                     return
                 params = parse_qs(parsed.query)
+
+                if params.get("state", [""])[0] != retriever.state:
+                    body = b"<h2>La autenticaci\xc3\xb3n fall\xc3\xb3. Int\xc3\xa9ntalo de nuevo.</h2>"
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    retriever._callback_error = "El navegador devolvió una respuesta de inicio de sesión no válida."
+                    retriever._server_event.set()
+                    return
 
                 if params.get("success", [""])[0] == "true" and "code" in params:
                     retriever._auth_code = params["code"][0]
@@ -133,7 +147,8 @@ class TokenRetriever:
             f"https://streamlabs.com/slobs/login?"
             f"skip_splash=true&external=electron&tiktok&force_verify=true&prompt=login"
             f"&origin=slobs&port={port}"
-            f"&code_challenge={self.code_challenge}&code_flow=true"
+            f"&code_challenge={self.code_challenge}&code_challenge_method=S256"
+            f"&state={self.state}&code_flow=true"
         )
 
         try:
@@ -148,7 +163,7 @@ class TokenRetriever:
                 self.last_error = "Se agotó el tiempo de inicio de sesión. Puedes reintentar."
                 return None
             if not self._auth_code:
-                self.last_error = "El navegador no confirmó el inicio de sesión. Puedes reintentar."
+                self.last_error = self._callback_error or "El navegador no confirmó el inicio de sesión. Puedes reintentar."
                 return None
         finally:
             server.shutdown()

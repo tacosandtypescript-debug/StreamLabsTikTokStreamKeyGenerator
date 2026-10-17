@@ -44,10 +44,13 @@ class TokenRetrieverTests(unittest.TestCase):
                 query = parse_qs(urlsplit(url).query)
                 self.assertEqual(query['force_verify'], ['true'])
                 self.assertEqual(query['prompt'], ['login'])
+                self.assertEqual(query['code_challenge_method'], ['S256'])
+                self.assertTrue(query['state'][0])
                 port = query['port'][0]
                 with requests.Session() as session:
                     callback_response = session.get(
-                        f'http://127.0.0.1:{port}/?success=true&code=test', timeout=2
+                        f'http://127.0.0.1:{port}/?success=true&code=test&state={query["state"][0]}',
+                        timeout=2,
                     )
                     self.assertEqual(callback_response.status_code, 200)
                     self.assertIn('Autenticación correcta', callback_response.content.decode('utf-8'))
@@ -56,6 +59,21 @@ class TokenRetrieverTests(unittest.TestCase):
                 self.assertEqual(retriever.retrieve_token(browser_opener=callback), 'synthetic-secret')
             exchange.assert_called_once()
         self.assertNotIn('synthetic-secret', captured.getvalue())
+
+    def test_callback_rejects_an_invalid_state(self):
+        retriever = TokenRetriever()
+        def callback(url):
+            port = parse_qs(urlsplit(url).query)['port'][0]
+            with requests.Session() as session:
+                response = session.get(
+                    f'http://127.0.0.1:{port}/?success=true&code=test&state=wrong', timeout=2
+                )
+                self.assertEqual(response.status_code, 400)
+            return True
+        with patch('TokenRetriever.requests.get') as exchange:
+            self.assertIsNone(retriever.retrieve_token(browser_opener=callback))
+        exchange.assert_not_called()
+        self.assertIn('no válida', retriever.last_error)
 
     def test_timeout_and_cancel_before_start(self):
         retriever = TokenRetriever()

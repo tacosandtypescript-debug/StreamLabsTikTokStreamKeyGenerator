@@ -106,7 +106,9 @@ launch runs on the worker through `BrowserLauncher`. The system URL handler runs
 first, as upstream did; only when it reports failure does a registered Chrome, Edge
 or Firefox executable receive an explicit visible new-window request. Qt's
 GUI-thread URL handler is the final fallback. The OAuth URL is passed as one
-argument, without a command shell.
+argument, without a command shell. The authorization request declares
+`code_challenge_method=S256` and carries a per-attempt `state`; the loopback
+callback rejects a missing or mismatched state before exchanging the code.
 The visible Cancel action restores retry immediately, and attempt identity prevents
 an old completion replacing a new account. Cancellation never changes the current
 token. Pending login disables account edits and preparing a transmission. Browser
