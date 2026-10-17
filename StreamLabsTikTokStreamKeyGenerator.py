@@ -28,6 +28,7 @@ class StreamApp(QMainWindow):
         super().__init__()
         self.stream = None
         self.game_mask_id = ""
+        self.live_state = "offline"
         self.init_ui()
         self.load_config()
         
@@ -242,6 +243,10 @@ class StreamApp(QMainWindow):
 
         control_layout.addLayout(button_row)
 
+        self.live_status = QLabel("Estado de emisión: sin emitir")
+        self.live_status.setStyleSheet("color: #777; font-weight: bold;")
+        control_layout.addWidget(self.live_status)
+
         # URL Section
         url_label = QLabel("Stream URL:")
         url_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
@@ -308,6 +313,19 @@ class StreamApp(QMainWindow):
 
     def handle_token_change(self):
         self.go_live_btn.setEnabled(bool(self.token_entry.text()))
+
+    def _set_live_state(self, state, detail=""):
+        self.live_state = state
+        labels = {
+            "starting": ("Estado de emisión: iniciando…", "color: #b26a00; font-weight: bold;"),
+            "live": ("Estado de emisión: EN VIVO", "color: #b00020; font-weight: bold;"),
+            "ending": ("Estado de emisión: cerrando…", "color: #b26a00; font-weight: bold;"),
+            "offline": ("Estado de emisión: sin emitir", "color: #777; font-weight: bold;"),
+            "error": ("Estado de emisión: error", "color: #b00020; font-weight: bold;"),
+        }
+        text, style = labels.get(state, labels["error"])
+        self.live_status.setText(f"{text}{(' — ' + detail) if detail else ''}")
+        self.live_status.setStyleSheet(style)
 
     def load_config(self):
         try:
@@ -500,6 +518,15 @@ class StreamApp(QMainWindow):
         self.suggestions_list.hide()
 
     def start_stream(self):
+        if not self.stream:
+            QMessageBox.warning(self, "Cuenta no preparada", "Carga el token y actualiza la cuenta antes de iniciar.")
+            return
+        if self.live_state in ("starting", "live", "ending"):
+            QMessageBox.information(self, "Emisión activa", "Ya hay una sesión de emisión activa o en proceso.")
+            return
+        self._set_live_state("starting")
+        self.go_live_btn.setEnabled(False)
+        self.end_live_btn.setEnabled(False)
         try:
             audience_type = "1" if self.mature_checkbox.isChecked() else "0"
             stream_url, stream_key = self.stream.start(
@@ -513,24 +540,45 @@ class StreamApp(QMainWindow):
                 self.stream_key.setText(stream_key)
                 self.end_live_btn.setEnabled(True)
                 self.go_live_btn.setEnabled(False)
+                self._set_live_state("live")
                 QMessageBox.information(self, "Live Started", "Stream started successfully!")
             else:
-                QMessageBox.critical(self, "Error", "Failed to start stream!")
+                self._set_live_state("error", self.stream.last_error)
+                self.go_live_btn.setEnabled(True)
+                QMessageBox.critical(self, "No se pudo iniciar", self.stream.last_error or "Streamlabs no inició la emisión.")
 
         except Exception as e:
+            self._set_live_state("error", str(e))
+            self.go_live_btn.setEnabled(True)
             QMessageBox.critical(self, "Error", f"Failed to start stream: {str(e)}")
 
     def end_stream(self):
+        if not self.stream or not self.stream.id:
+            self._set_live_state("offline")
+            self.end_live_btn.setEnabled(False)
+            self.go_live_btn.setEnabled(bool(self.token_entry.text()))
+            QMessageBox.information(self, "Sin emisión activa", "No hay una sesión activa para cerrar.")
+            return
+        self._set_live_state("ending")
+        self.end_live_btn.setEnabled(False)
         try:
             if self.stream.end():
                 self.stream_url.clear()
                 self.stream_key.clear()
                 self.end_live_btn.setEnabled(False)
                 self.go_live_btn.setEnabled(True)
+                self._set_live_state("offline")
                 QMessageBox.information(self, "Live Ended", "Stream ended successfully!")
             else:
-                QMessageBox.critical(self, "Error", "Failed to end stream!")
+                # The endpoint can return an error after TikTok has already
+                # closed the session. Keep the UI honest and make the outcome
+                # explicit instead of leaving the user guessing.
+                self._set_live_state("error", self.stream.last_error)
+                self.end_live_btn.setEnabled(True)
+                QMessageBox.critical(self, "No se pudo confirmar el cierre", self.stream.last_error or "Streamlabs rechazó el cierre; la emisión puede seguir activa.")
         except Exception as e:
+            self._set_live_state("error", str(e))
+            self.end_live_btn.setEnabled(True)
             QMessageBox.critical(self, "Error", f"Failed to end stream: {str(e)}")
 
     def copy_to_clipboard(self, widget):
