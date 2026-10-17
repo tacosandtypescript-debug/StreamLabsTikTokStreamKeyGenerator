@@ -371,6 +371,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.window.live_state, "uncertain")
         self.assertNotIn("UNIT-SECRET", self.window.live_status.text())
 
+    def test_stale_search_result_releases_inflight_flag(self):
+        self.window._search_inflight = True
+        self.window._finish_search((Stream("other-account"), self.window._search_generation, "Old", [], ""))
+        self.assertFalse(self.window._search_inflight)
+
     def test_stale_category_result_is_ignored(self):
         self.window.game_category.setText("Newest")
         self.window._search_generation = 10

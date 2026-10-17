@@ -1082,9 +1082,9 @@ class StreamApp(QMainWindow):
 
     def _finish_search(self, outcome):
         client, generation, query, categories, error = outcome
+        self._search_inflight = False
         if client is not self.stream:
             return
-        self._search_inflight = False
         if generation != self._search_generation or query != self.game_category.text().strip():
             if self.game_category.text().strip():
                 self._search_timer.start()
