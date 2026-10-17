@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
+from SecretStore import protect, unprotect
 from StreamLabsTikTokStreamKeyGenerator import StreamApp
 
 
@@ -73,6 +75,21 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(window.mature_checkbox.isChecked())
         self.assertEqual(window._saved_session, session)
         self.assertFalse(os.path.exists(self.path + ".bak"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows DPAPI")
+    def test_protected_config_token_is_restored(self):
+        window = self.open_app({"token": protect("unit-token")})
+        self.assertEqual(window.token_entry.text(), "unit-token")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows DPAPI")
+    def test_saved_token_is_encrypted_at_rest(self):
+        window = self.open_app({"token": "legacy-token"})
+        window.token_entry.setText("unit-token")
+        self.assertTrue(window.save_config(False))
+        with open(self.path, encoding="utf-8") as file:
+            saved = json.load(file)
+        self.assertNotEqual(saved["token"], "unit-token")
+        self.assertEqual(unprotect(saved["token"]), "unit-token")
 
 
 if __name__ == "__main__":

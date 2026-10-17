@@ -9,9 +9,11 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QScrollArea
 from Stream import Stream
 from TokenRetriever import TokenRetriever
+from SecretStore import unprotect
 from StreamLabsTikTokStreamKeyGenerator import StreamApp
 from test_stream import response
 from unittest.mock import Mock
@@ -320,7 +322,7 @@ class AppTests(unittest.TestCase):
         self.assertIs(self.window.stream, new_client)
         self.assertEqual(self.window.token_entry.text(), 'new-unit-token')
         with open(self.window.config_path) as file:
-            self.assertEqual(json.load(file)['token'], 'new-unit-token')
+            self.assertEqual(unprotect(json.load(file)['token']), 'new-unit-token')
         self.assertTrue(self.window.go_live_btn.isEnabled())
 
     def test_change_account_preserves_prepared_session_and_explains_block(self):
@@ -383,6 +385,24 @@ class AppTests(unittest.TestCase):
         self.wait_for(lambda: not self.window._api_busy)
         self.assertEqual(self.window.live_state, "uncertain")
         self.assertNotIn("UNIT-SECRET", self.window.live_status.text())
+
+    def test_copied_key_is_cleared_from_the_clipboard(self):
+        self.window.CLIPBOARD_CLEAR_MS = 0
+        self.window.stream_key.setText('secret-key')
+        with patch.object(QMessageBox, 'information'):
+            self.window.copy_to_clipboard(self.window.stream_key)
+        self.assertEqual(QApplication.clipboard().text(), 'secret-key')
+        QTest.qWait(50)
+        self.assertEqual(QApplication.clipboard().text(), '')
+
+    def test_unrelated_clipboard_content_is_preserved(self):
+        self.window.CLIPBOARD_CLEAR_MS = 0
+        self.window.stream_key.setText('secret-key')
+        with patch.object(QMessageBox, 'information'):
+            self.window.copy_to_clipboard(self.window.stream_key)
+        QApplication.clipboard().setText('other content')
+        QTest.qWait(50)
+        self.assertEqual(QApplication.clipboard().text(), 'other content')
 
     def test_stale_search_result_releases_inflight_flag(self):
         self.window._search_inflight = True

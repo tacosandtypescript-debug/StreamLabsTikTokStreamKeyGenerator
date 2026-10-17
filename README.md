@@ -34,7 +34,9 @@ antes de cambiar. Los datos se guardan en `config.json`, junto a la aplicación.
 esa carpeta no es escribible (por ejemplo, Program Files o una app de macOS), se
 usa la configuración del usuario: `%APPDATA%\FPV Stream`,
 `~/Library/Application Support/FPV Stream` o `~/.config/fpv-stream`, migrando el
-archivo anterior la primera vez.
+archivo anterior la primera vez. En Windows el token se guarda cifrado con DPAPI;
+en otros sistemas se mantiene el formato histórico. Al copiar la URL o la clave,
+el portapapeles se limpia a los 30 segundos si no has copiado otra cosa.
 
 Esta opción no cierra la sesión de TikTok en otras pestañas ni cambia la cuenta
 guardada en Streamlabs Desktop.

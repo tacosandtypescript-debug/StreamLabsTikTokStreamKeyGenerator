@@ -79,8 +79,10 @@ window to come forward instead of allowing two writers.
 
 Persist pending state and the session ID before dispatching a lifecycle request,
 bound to the account fingerprint, so restart cannot silently forget a pending
-session. No RTMP URL/key is persisted by this change. The pre-existing account
-token storage policy in config.json is retained.
+session. No RTMP URL/key is persisted by this change. The token is protected with
+Windows DPAPI before it is written to config.json; platforms without a keyring keep
+the historical plain-text value. Clipboard copies are cleared after 30 seconds when
+they still hold the copied value.
 
 Manual recovery only clears local state after the user explicitly confirms in
 Live Monitor that the remote session ended. It does not issue an API request and

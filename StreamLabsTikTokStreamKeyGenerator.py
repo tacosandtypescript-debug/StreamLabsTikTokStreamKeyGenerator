@@ -20,6 +20,7 @@ from Stream import Stream
 from TokenRetriever import TokenRetriever
 from BrowserLauncher import open_browser
 from Updater import VersionChecker
+from SecretStore import protect, unprotect
 from packaging import version
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -135,6 +136,7 @@ BRAND_COLORS = {
 }
 
 class StreamApp(QMainWindow):
+    CLIPBOARD_CLEAR_MS = 30000
     update_suggestions = Signal(list)
     update_ui = Signal()
     _token_ready = Signal(object)
@@ -158,6 +160,7 @@ class StreamApp(QMainWindow):
         self._saved_session = None
         self._online_retriever = None
         self._pending_token = None
+        self._clipboard_text = ""
         self._account_generation = 0
         self._account_cleared = False
         self._account_clear_failed = False
@@ -674,7 +677,13 @@ class StreamApp(QMainWindow):
             self._quarantine_config()
             data = {}
         self._saved_session = data.get("session") if isinstance(data.get("session"), dict) else None
-        self.token_entry.setText(self._config_text(data.get("token")))
+        raw_token = self._config_text(data.get("token"))
+        token = unprotect(raw_token)
+        if raw_token and not token:
+            self.live_status.setText(
+                "No se pudo descifrar el token guardado en este equipo. Vuelve a cargar la cuenta."
+            )
+        self.token_entry.setText(token)
         self.stream_title.setText(self._config_text(data.get("title")))
         self.game_category.setText(self._config_text(data.get("game")))
         audience = data.get("audience_type", "0")
@@ -728,6 +737,11 @@ class StreamApp(QMainWindow):
                                 self._api_busy and self._pending_operation in ("start", "end")):
                 data["session"] = {"id": self.stream.id, "uncertain": self.stream.session_uncertain or self._api_busy,
                                    "account": hashlib.sha256(self._client_token.encode()).hexdigest()}
+        try:
+            data["token"] = protect(data.get("token", ""))
+        except OSError:
+            self.live_status.setText("No se pudo cifrar el token para guardarlo. Comprueba el sistema.")
+            return False
         temporary = None
         try:
             directory = os.path.dirname(self.config_path)
@@ -1258,11 +1272,27 @@ class StreamApp(QMainWindow):
                 return
         self.save_config(False)
         self.cancel_online_login()
+        self._clear_clipboard_if_unchanged(self._clipboard_text)
         event.accept()
 
     def copy_to_clipboard(self, widget):
-        QApplication.clipboard().setText(widget.text())
+        text = widget.text()
+        QApplication.clipboard().setText(text)
+        self._clipboard_text = text
+        QTimer.singleShot(
+            self.CLIPBOARD_CLEAR_MS,
+            lambda: self._clear_clipboard_if_unchanged(text),
+        )
         QMessageBox.information(self, "Copiado", "El texto se copió al portapapeles.")
+
+    def _clear_clipboard_if_unchanged(self, text):
+        if not text:
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard.text() == text:
+            clipboard.clear()
+        if self._clipboard_text == text:
+            self._clipboard_text = ""
 
     def show_help(self):
         help_text = """1. Solicita acceso LIVE en Streamlabs
