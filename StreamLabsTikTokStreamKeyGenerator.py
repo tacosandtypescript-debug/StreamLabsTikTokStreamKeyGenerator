@@ -173,8 +173,6 @@ BRAND_COLORS = {
 
 class StreamApp(QMainWindow):
     CLIPBOARD_CLEAR_MS = 30000
-    update_suggestions = Signal(list)
-    update_ui = Signal()
     _token_ready = Signal(object)
     _token_error = Signal(object)
     _restore_local_btn = Signal(int)
@@ -214,8 +212,6 @@ class StreamApp(QMainWindow):
             QTimer.singleShot(3000, self.check_updates_on_startup)
 
         # Connect signals
-        self.update_suggestions.connect(self.update_suggestions_list)
-        self.update_ui.connect(self.handle_ui_update)
         self._token_ready.connect(self._apply_local_token)
         self._token_error.connect(self._show_local_token_error)
         self._restore_local_btn.connect(self._do_restore_local_btn)
@@ -1369,7 +1365,9 @@ class StreamApp(QMainWindow):
         help_text = """1. Solicita acceso LIVE en Streamlabs
 2. Instala Streamlabs e inicia sesión con TikTok
 3. Usa esta aplicación para obtener el token de Streamlabs
-4. Prepara la transmisión"""
+4. Elige título y categoría y pulsa Preparar transmisión
+5. Para usar otra cuenta, pulsa Cambiar cuenta: se borra la cuenta guardada
+   en este generador y se abre el navegador para iniciar sesión de nuevo."""
         
         msg = QMessageBox(self)
         msg.setWindowTitle("Ayuda")
@@ -1420,9 +1418,6 @@ class StreamApp(QMainWindow):
 
     def open_live_monitor(self):
         QDesktopServices.openUrl("https://livecenter.tiktok.com/live_monitor?lang=es-ES")
-
-    def handle_ui_update(self):
-        self.load_account_info()
 
 def main():
     app = QApplication(sys.argv)

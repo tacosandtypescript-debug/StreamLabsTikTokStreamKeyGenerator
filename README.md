@@ -44,7 +44,7 @@ guardada en Streamlabs Desktop.
 
 ## Screenshots
 
-![Screenshot](https://i.imgur.com/2PSgEQP.png)
+![Generador FPV Stream](docs/validation/generator-prepared.png)
 
 ## Output
 

@@ -96,7 +96,8 @@ pending session.
 Run `.venv/Scripts/python.exe -m unittest -v` and Python byte-compilation. GUI tests use real Qt widgets offscreen with synthetic API
 responses, including delayed requests, unknown results, preserved IDs, masking,
 manual recovery, Spanish copy, emoji-free controls and the FPV Stream icon/theme.
-They never create real TikTok sessions.
+They never create real TikTok sessions. GitHub Actions runs the same suite on
+Windows and Linux with an offscreen Qt platform.
 
 ## Web-login recovery
 
