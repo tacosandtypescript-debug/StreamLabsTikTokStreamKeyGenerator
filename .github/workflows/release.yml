@@ -65,6 +65,7 @@ jobs:
             --jobs=4 `
             --static-libpython=no `
             --standalone `
+            --include-data-files=branding/fpv-stream-logo.svg=branding/fpv-stream-logo.svg `
             --enable-plugin=anti-bloat `
             --show-modules `
             --show-anti-bloat-changes `
@@ -93,6 +94,7 @@ jobs:
             --jobs=4 `
             --static-libpython=no `
             --standalone `
+            --include-data-files=branding/fpv-stream-logo.svg=branding/fpv-stream-logo.svg `
             --enable-plugin=anti-bloat `
             --show-modules `
             --show-anti-bloat-changes `
@@ -106,6 +108,11 @@ jobs:
             --plugin-enable=pyside6 `
             StreamLabsTikTokStreamKeyGenerator.py
           }
+
+      - name: Verify bundled assets
+        run: |
+          $logo = "StreamLabsTikTokStreamKeyGenerator.dist\branding\fpv-stream-logo.svg"
+          if (-not (Test-Path $logo)) { throw "Missing bundled logo: $logo" }
 
       - name: Compress Executable
         run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator${{ matrix.build_type }}-win-${{ github.event.inputs.version }}.zip
@@ -149,6 +156,7 @@ jobs:
           --jobs=4 \
           --static-libpython=no \
           --standalone \
+          --include-data-files=branding/fpv-stream-logo.svg=branding/fpv-stream-logo.svg \
           --enable-plugin=anti-bloat \
           --enable-plugin=pyside6 \
           --prefer-source-code \
@@ -157,6 +165,10 @@ jobs:
           --macos-app-version="${{ github.event.inputs.version }}" \
           --macos-app-name="StreamLabs TikTok Stream Key Generator" \
           StreamLabsTikTokStreamKeyGenerator.py
+
+      - name: Verify bundled assets
+        run: |
+          find StreamLabsTikTokStreamKeyGenerator.app -name fpv-stream-logo.svg | grep -q . || (echo "Missing bundled logo" && exit 1)
 
       - name: Compress Executable
         run: |
@@ -197,6 +209,7 @@ jobs:
           --jobs=4 \
           --static-libpython=no \
           --standalone \
+          --include-data-files=branding/fpv-stream-logo.svg=branding/fpv-stream-logo.svg \
           --enable-plugin=anti-bloat \
           --enable-plugin=pyside6 \
           --show-modules \
@@ -205,6 +218,9 @@ jobs:
           --follow-imports \
           --prefer-source-code \
           StreamLabsTikTokStreamKeyGenerator.py
+
+      - name: Verify bundled assets
+        run: test -f StreamLabsTikTokStreamKeyGenerator.dist/branding/fpv-stream-logo.svg || (echo "Missing bundled logo" && exit 1)
 
       - name: Compress Executable
         run: zip -r StreamLabsTikTokStreamKeyGenerator-linux-${{ github.event.inputs.version }}.zip StreamLabsTikTokStreamKeyGenerator.dist/*
