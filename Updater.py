@@ -1,4 +1,9 @@
-from _version import __version__
+try:
+    from _version import __version__
+except ImportError:
+    # Source checkouts do not always include the generated version module.
+    # Keep the updater optional so the application can still start normally.
+    __version__ = "2.0.9"
 from packaging import version
 import requests
 
