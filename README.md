@@ -1,10 +1,7 @@
-# TikTok Live Stream Key Generator for OBS Studio Using Streamlabs API
+# FPV Stream — Generador de clave de transmisión de TikTok para OBS Studio
 
 ## Description
 This application is a simple tool that generates a TikTok Live Stream Key for OBS Studio using the Streamlabs API. Streamlabs TikTok LIVE access is required.
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/loukious)
-
 
 ## Features
 - Generate TikTok Live Stream Key using Streamlabs API
@@ -19,10 +16,21 @@ This application is a simple tool that generates a TikTok Live Stream Key for OB
 
 ## Usage
 1. Run the application.
-2. click on the "Load from PC" button if you have Streamlabs installed on your computer and you are logged in with your TikTok account in Streamlabs, otherwise click on the "Login from Web" button.
+2. Click on the "Cargar desde el PC" button if you have Streamlabs installed on your computer and you are logged in with your TikTok account in Streamlabs, otherwise click on the "Cargar desde la web" button.
 3. Select stream title and category.
-4. Click on "Save Config" button to save the token, title and category.
-5. Click on the "Go Live" button.
+4. Click on "Guardar configuración" button to save the token, title and category.
+5. Click on the "Preparar transmisión" button.
+
+### Cambiar cuenta
+
+Pulsa **Cambiar cuenta** para borrar del generador el token, el usuario y las claves
+anteriores y abrir un nuevo acceso. En la página de TikTok, pulsa **Cambiar de cuenta**
+y elige la cuenta que quieres usar. Si cancelas, la cuenta anterior no se restaura.
+Si hay una transmisión preparada, finalízala o confirma su cierre en Live Monitor
+antes de cambiar. Los datos se guardan en `config.json`, junto a la aplicación.
+
+Esta opción no cierra la sesión de TikTok en otras pestañas ni cambia la cuenta
+guardada en Streamlabs Desktop.
 
 
 ## Screenshots

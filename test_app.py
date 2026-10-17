@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton
 from Stream import Stream
 from TokenRetriever import TokenRetriever
 from StreamLabsTikTokStreamKeyGenerator import StreamApp
@@ -23,13 +23,14 @@ class AppTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         cls.real_save = StreamApp.save_config
+        cls.real_load = StreamApp.load_config
 
     def setUp(self):
         self.patches = [patch.object(StreamApp, "load_config"), patch.object(StreamApp, "save_config", return_value=True)]
         for item in self.patches:
             item.start()
-        self.window = StreamApp(startup_checks=False)
-        self.window.suppress_donation_reminder = True
+        self.config_dir = tempfile.TemporaryDirectory()
+        self.window = StreamApp(startup_checks=False, config_path=os.path.join(self.config_dir.name, 'config.json'))
         self.client = Stream("unit-account-token")
         self.client.s = Mock()
         self.window.stream = self.client
@@ -52,6 +53,7 @@ class AppTests(unittest.TestCase):
         self.app.processEvents()
         for item in reversed(self.patches):
             item.stop()
+        self.config_dir.cleanup()
 
     def wait_for(self, predicate):
         deadline = time.monotonic() + 3
@@ -83,27 +85,66 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.window.token_entry.text(), 'unit-account-token')
         self.window.cancel_online_login()
 
+    def test_interface_is_spanish_and_has_no_donation_controls(self):
+        button_texts = [button.text() for button in self.window.findChildren(QPushButton)]
+        self.assertNotIn("Donate", " ".join(button_texts))
+        self.assertFalse(hasattr(self.window, "donate_btn"))
+        self.assertFalse(hasattr(self.window, "suppress_donation_reminder"))
+        self.assertFalse(any(
+            any(0x1F000 <= ord(char) <= 0x1FAFF or 0x2600 <= ord(char) <= 0x27BF for char in text)
+            for text in button_texts
+        ))
+        self.assertEqual(self.window.load_local_btn.text(), "Cargar desde el PC")
+        self.assertEqual(self.window.load_online_btn.text(), "Cargar desde la web")
+        self.assertEqual(self.window.change_account_btn.text(), "Cambiar cuenta")
+        self.assertEqual(self.window.go_live_btn.text(), "Preparar transmisión")
+        self.assertEqual(self.window.end_live_btn.text(), "Finalizar transmisión")
+        self.assertEqual(self.window.save_btn.text(), "Guardar configuración")
+        self.assertEqual(self.window.help_btn.text(), "Ayuda")
+        self.assertEqual(self.window.brand_name.text(), "FPV Stream")
+        self.assertFalse(self.window.windowIcon().isNull())
+        self.assertIn("#DF2531", self.window.styleSheet())
+        self.assertEqual(self.window.toggle_token_btn.text(), "Ver")
+        self.window.toggle_token_visibility()
+        self.assertEqual(self.window.toggle_token_btn.text(), "Ocultar")
+
     def test_failed_browser_launch_returns_to_retry(self):
-        with patch('TokenRetriever.webbrowser.open', return_value=False):
+        with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', return_value=False), \
+             patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl', return_value=False):
             self.window.fetch_online_token()
             self.wait_for(lambda: self.window._online_retriever is None)
         self.assertTrue(self.window.load_online_btn.isEnabled())
         self.assertFalse(self.window.cancel_login_btn.isEnabled())
         self.assertIn('navegador', self.window.login_status.text())
 
-    def test_original_browser_opens_off_gui_thread_and_cancel_does_not_reopen(self):
+    def test_browser_launch_falls_back_to_qt_url_handler(self):
+        with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', return_value=False), \
+             patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl', return_value=True) as fallback:
+            self.window.fetch_online_token()
+            retriever = self.window._online_retriever
+            self.wait_for(lambda: fallback.called)
+            self.window.cancel_login_btn.click()
+            self.wait_for(lambda: retriever.cancelled.is_set())
+        fallback.assert_called_once()
+        self.assertIn('https://streamlabs.com/slobs/login?', fallback.call_args.args[0].toString())
+
+    def test_browser_opens_with_default_browser_and_cancel_does_not_reopen(self):
         calls = []
         gui_thread = threading.get_ident()
         def opened(url):
-            calls.append(threading.get_ident() != gui_thread)
+            calls.append((threading.get_ident() != gui_thread, url))
             return True
-        with patch('TokenRetriever.webbrowser.open', side_effect=opened):
+        with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', side_effect=opened), \
+             patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl') as qt_fallback:
             self.window.fetch_online_token()
             retriever = self.window._online_retriever
             self.wait_for(lambda: bool(calls))
             self.window.cancel_login_btn.click()
             self.wait_for(lambda: retriever.cancelled.is_set())
-        self.assertEqual(calls, [True])
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0][0])
+        self.assertIn('prompt=login', calls[0][1])
+        qt_fallback.assert_not_called()
         self.assertTrue(self.window.load_online_btn.isEnabled())
 
     def test_prepared_does_not_claim_received_video(self):
@@ -170,6 +211,114 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.id, "session-1")
         self.assertEqual(self.window.token_entry.text(), "unit-account-token")
 
+    def test_change_account_erases_saved_identity_before_opening_login(self):
+        self.window.tiktok_username.setText('previous-user')
+        self.window.app_status.setText('approved')
+        self.window.stream_url.setText('rtmps://example.invalid/previous')
+        self.window.stream_key.setText('previous-key')
+        self.window._saved_session = {'id': 'stale-session'}
+
+        def verify_cleared_before_launch():
+            with open(self.window.config_path) as file:
+                saved = json.load(file)
+            self.assertEqual(saved['token'], '')
+            self.assertNotIn('session', saved)
+            self.assertIsNone(self.window.stream)
+            self.assertEqual(self.window._client_token, '')
+            self.assertFalse(self.window.tiktok_username.text())
+            self.assertFalse(self.window.app_status.text())
+            self.assertFalse(self.window.can_go_live.text())
+            self.assertFalse(self.window.stream_key.text())
+            self.assertFalse(self.window.stream_url.text())
+            self.assertIsNone(self.window._saved_session)
+
+        with patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)), \
+             patch.object(self.window, 'fetch_online_token', side_effect=verify_cleared_before_launch) as launch:
+            self.window.change_account_btn.click()
+        launch.assert_called_once()
+        self.assertFalse(self.window.go_live_btn.isEnabled())
+        self.assertEqual(self.window.stream_title.text(), 'Test')
+        restarted = StreamApp(startup_checks=False, config_path=self.window.config_path)
+        try:
+            type(self).real_load(restarted)
+            self.assertFalse(restarted.token_entry.text())
+            self.assertIsNone(restarted.stream)
+            self.assertFalse(restarted.tiktok_username.text())
+            self.assertFalse(restarted.change_account_btn.isEnabled())
+        finally:
+            restarted.close()
+            restarted.deleteLater()
+
+    def test_change_account_discards_late_account_and_local_results(self):
+        old_generation = self.window._account_generation
+        old_login = TokenRetriever()
+        self.window._online_retriever = old_login
+        self.window._api_busy = True
+        self.window._pending_operation = 'info'
+        with patch.object(self.window, 'fetch_online_token'):
+            self.window.change_account()
+        self.window._finish_api((self.client, 'info', {'user': {'username': 'previous-user'}, 'can_be_live': True}, ''))
+        self.window._apply_local_token((old_generation, 'stale-local-token'))
+        self.window._finish_online_token((old_login, 'stale-web-token'))
+        self.window._finish_search((self.client, old_generation, 'Other', [{'full_name': 'Old', 'game_mask_id': 'old'}], ''))
+        self.assertTrue(old_login.cancelled.is_set())
+        self.assertFalse(self.window.token_entry.text())
+        self.assertFalse(self.window.tiktok_username.text())
+        self.assertIsNone(self.window.stream)
+        self.assertFalse(self.window._api_busy)
+        self.assertFalse(self.window._categories)
+
+    def test_change_account_cancel_keeps_previous_account_removed(self):
+        with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', return_value=True), \
+             patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)):
+            self.window.change_account_btn.click()
+            retriever = self.window._online_retriever
+            self.window.cancel_login_btn.click()
+            self.wait_for(lambda: retriever.cancelled.is_set())
+        with open(self.window.config_path) as file:
+            self.assertEqual(json.load(file)['token'], '')
+        self.assertIsNone(self.window.stream)
+        self.assertFalse(self.window.token_entry.text())
+        self.assertIn('ninguna cuenta', self.window.login_status.text())
+
+    def test_change_account_loads_only_the_new_account(self):
+        new_client = Stream('new-unit-token')
+        new_client.s = Mock()
+        new_client.s.get.return_value = response(payload={
+            'user': {'username': 'new-user'}, 'application_status': {'status': 'approved'}, 'can_be_live': True
+        })
+        with patch('StreamLabsTikTokStreamKeyGenerator.TokenRetriever.retrieve_token', return_value='new-unit-token'), \
+             patch('StreamLabsTikTokStreamKeyGenerator.Stream', return_value=new_client), \
+             patch.object(self.window, 'save_config', side_effect=lambda show: type(self).real_save(self.window, show)):
+            self.window.change_account_btn.click()
+            self.wait_for(lambda: self.window.tiktok_username.text() == 'new-user' and not self.window._api_busy)
+        self.assertIs(self.window.stream, new_client)
+        self.assertEqual(self.window.token_entry.text(), 'new-unit-token')
+        with open(self.window.config_path) as file:
+            self.assertEqual(json.load(file)['token'], 'new-unit-token')
+        self.assertTrue(self.window.go_live_btn.isEnabled())
+
+    def test_change_account_preserves_prepared_session_and_explains_block(self):
+        self.start_prepared()
+        with patch.object(self.window, 'fetch_online_token') as launch:
+            self.window.change_account_btn.click()
+        launch.assert_not_called()
+        self.assertIs(self.window.stream, self.client)
+        self.assertEqual(self.client.id, 'session-1')
+        self.assertTrue(self.window.stream_key.text())
+        self.assertIn('Finaliza', self.window.login_status.text())
+
+    def test_change_account_save_failure_blocks_login_and_allows_retry(self):
+        with patch.object(self.window, 'save_config', return_value=False), \
+             patch.object(self.window, 'fetch_online_token') as launch:
+            self.window.change_account_btn.click()
+        launch.assert_not_called()
+        self.assertTrue(self.window.change_account_btn.isEnabled())
+        self.assertIn('No se pudo borrar', self.window.login_status.text())
+        with patch('StreamLabsTikTokStreamKeyGenerator.TokenRetriever') as retriever:
+            self.window.fetch_online_token()
+        retriever.assert_not_called()
+
     def test_manual_close_requires_explicit_confirmation(self):
         self.client.id = "session-1"
         self.client.session_uncertain = True
@@ -187,17 +336,19 @@ class AppTests(unittest.TestCase):
         self.window._pending_operation = "start"
         self.window.stream_key.setText("UNIT-SECRET-NOT-TO-PERSIST")
         previous = os.getcwd()
-        with tempfile.TemporaryDirectory() as folder:
+        with tempfile.TemporaryDirectory() as unrelated_folder:
             try:
-                os.chdir(folder)
+                os.chdir(unrelated_folder)
                 self.assertTrue(type(self).real_save(self.window, False))
-                with open("config.json") as file:
-                    saved = json.load(file)
-                self.assertTrue(saved["session"]["uncertain"])
-                self.assertEqual(saved["session"]["account"], hashlib.sha256(b"unit-account-token").hexdigest())
-                self.assertNotIn("UNIT-SECRET-NOT-TO-PERSIST", json.dumps(saved))
+                self.assertFalse(os.path.exists('config.json'))
             finally:
                 os.chdir(previous)
+        with open(self.window.config_path) as file:
+            saved = json.load(file)
+        self.assertTrue(saved["session"]["uncertain"])
+        self.assertEqual(saved["session"]["account"], hashlib.sha256(b"unit-account-token").hexdigest())
+        self.assertNotIn("UNIT-SECRET-NOT-TO-PERSIST", json.dumps(saved))
+        self.assertNotIn("suppress_donation_reminder", saved)
 
     def test_worker_exception_is_safe_and_uncertain(self):
         self.client.start = Mock(side_effect=RuntimeError("UNIT-SECRET"))

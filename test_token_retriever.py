@@ -41,9 +41,16 @@ class TokenRetrieverTests(unittest.TestCase):
         with patch('TokenRetriever.requests.get', return_value=response) as exchange:
             # Use a separate real HTTP session for the loopback callback.
             def callback(url):
-                port = parse_qs(urlsplit(url).query)['port'][0]
+                query = parse_qs(urlsplit(url).query)
+                self.assertEqual(query['force_verify'], ['true'])
+                self.assertEqual(query['prompt'], ['login'])
+                port = query['port'][0]
                 with requests.Session() as session:
-                    self.assertEqual(session.get(f'http://127.0.0.1:{port}/?success=true&code=test', timeout=2).status_code, 200)
+                    callback_response = session.get(
+                        f'http://127.0.0.1:{port}/?success=true&code=test', timeout=2
+                    )
+                    self.assertEqual(callback_response.status_code, 200)
+                    self.assertIn('Autenticación correcta', callback_response.content.decode('utf-8'))
                 return True
             with contextlib.redirect_stdout(captured):
                 self.assertEqual(retriever.retrieve_token(browser_opener=callback), 'synthetic-secret')

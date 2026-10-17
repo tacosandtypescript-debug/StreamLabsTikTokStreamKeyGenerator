@@ -10,26 +10,45 @@ import hashlib
 import tempfile
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
-                              QListWidget, QMessageBox, QListWidgetItem, QSizePolicy)
-from PySide6.QtCore import Signal, QTimer, Qt
-from PySide6.QtGui import QDesktopServices
+                              QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame)
+from PySide6.QtCore import Signal, QTimer, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QIcon
 from Stream import Stream
 from TokenRetriever import TokenRetriever
+from BrowserLauncher import open_browser
 from Updater import VersionChecker
 from packaging import version
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+BRAND_LOGO_PATH = os.path.join(APP_DIR, "branding", "fpv-stream-logo.svg")
+BRAND_COLORS = {
+    "red": "#DF2531",
+    "red_light": "#FF4A54",
+    "red_dark": "#A50E1A",
+    "background": "#0D0D0F",
+    "surface": "#1C1C20",
+    "control": "#2B2B2B",
+    "border": "#3F3F45",
+    "text": "#FFFFFF",
+    "muted": "#C5C5CB",
+    "disabled": "#83868A",
+    "warning": "#F4C95D",
+}
 
 class StreamApp(QMainWindow):
     update_suggestions = Signal(list)
     update_ui = Signal()
-    _token_ready = Signal(str)
-    _token_error = Signal(str)
-    _restore_local_btn = Signal()
+    _token_ready = Signal(object)
+    _token_error = Signal(object)
+    _restore_local_btn = Signal(int)
     _online_done = Signal(object)
+    _login_browser_requested = Signal(object)
     _api_done = Signal(object)
     _search_done = Signal(object)
 
-    def __init__(self, *, startup_checks=True):
+    def __init__(self, *, startup_checks=True, config_path=None):
         super().__init__()
+        self.config_path = os.path.abspath(config_path or os.path.join(APP_DIR, "config.json"))
         self.stream = None
         self.game_mask_id = ""
         self.live_state = "offline"
@@ -39,6 +58,9 @@ class StreamApp(QMainWindow):
         self._can_go_live = False
         self._saved_session = None
         self._online_retriever = None
+        self._account_generation = 0
+        self._account_cleared = False
+        self._account_clear_failed = False
         self._search_generation = 0
         self._search_inflight = False
         self._categories = {}
@@ -49,37 +71,78 @@ class StreamApp(QMainWindow):
         self.init_ui()
         
         if startup_checks:
-            QTimer.singleShot(3000, lambda: [
-                self.show_donation_reminder(),
-                QTimer.singleShot(3000, self.check_updates_on_startup)
-            ])
+            QTimer.singleShot(3000, self.check_updates_on_startup)
 
         # Connect signals
         self.update_suggestions.connect(self.update_suggestions_list)
         self.update_ui.connect(self.handle_ui_update)
-        self._token_ready.connect(self._apply_token)
-        self._token_error.connect(lambda msg: QMessageBox.critical(self, "Error", msg))
+        self._token_ready.connect(self._apply_local_token)
+        self._token_error.connect(self._show_local_token_error)
         self._restore_local_btn.connect(self._do_restore_local_btn)
         self._online_done.connect(self._finish_online_token)
+        self._login_browser_requested.connect(self._open_login_browser)
         self._api_done.connect(self._finish_api)
         self._search_done.connect(self._finish_search)
         self.load_config()
+        self._sync_controls()
 
     def init_ui(self):
-        self.setWindowTitle("StreamLabs TikTok Stream Key Generator")
+        self.setWindowTitle("FPV Stream · Generador de clave de TikTok")
         self.setMinimumSize(800, 600)
+        self._brand_icon = QIcon(BRAND_LOGO_PATH)
+        self.setWindowIcon(self._brand_icon)
+        self._apply_brand_theme()
 
         main_widget = QWidget()
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(10)
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
+        brand_header = QWidget()
+        brand_header_layout = QHBoxLayout(brand_header)
+        brand_header_layout.setContentsMargins(4, 0, 4, 0)
+        brand_header_layout.setSpacing(10)
+
+        self.brand_logo = QLabel()
+        self.brand_logo.setFixedSize(48, 48)
+        self.brand_logo.setPixmap(self._brand_icon.pixmap(48, 48))
+        self.brand_logo.setScaledContents(True)
+        self.brand_logo.setAccessibleName("Logotipo de FPV Stream")
+        brand_header_layout.addWidget(self.brand_logo)
+
+        brand_copy = QVBoxLayout()
+        brand_copy.setSpacing(0)
+        self.brand_name = QLabel("FPV Stream")
+        self.brand_name.setObjectName("brandTitle")
+        self.brand_name.setAccessibleName("FPV Stream")
+        brand_copy.addWidget(self.brand_name)
+        brand_subtitle = QLabel("Preparación de transmisiones de TikTok")
+        brand_subtitle.setObjectName("brandSubtitle")
+        brand_copy.addWidget(brand_subtitle)
+        brand_header_layout.addLayout(brand_copy)
+        brand_header_layout.addStretch()
+        main_layout.addWidget(brand_header)
+
+        brand_rule = QFrame()
+        brand_rule.setFrameShape(QFrame.HLine)
+        brand_rule.setFrameShadow(QFrame.Plain)
+        brand_rule.setFixedHeight(2)
+        brand_rule.setStyleSheet(f"background-color: {BRAND_COLORS['red']}; border: none;")
+        main_layout.addWidget(brand_rule)
+
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(12)
+        main_layout.addLayout(content_layout)
+
         # Left column
         left_column = QVBoxLayout()
-        main_layout.addLayout(left_column)
+        left_column.setSpacing(8)
+        content_layout.addLayout(left_column)
 
         # Token Section
-        token_group = QGroupBox("Token Loader")
+        token_group = QGroupBox("Carga de token")
         token_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         left_column.addWidget(token_group)
 
@@ -93,18 +156,18 @@ class StreamApp(QMainWindow):
         token_entry_row.setSpacing(5)
 
         self.token_entry = QLineEdit()
-        self.token_entry.setPlaceholderText("Paste token here or load below...")
+        self.token_entry.setPlaceholderText("Pega el token o cárgalo abajo…")
         self.token_entry.setEchoMode(QLineEdit.Password)
         self.token_entry.setFixedHeight(28)
         self.token_entry.textChanged.connect(self.handle_token_change)
         self.token_entry.returnPressed.connect(self.refresh_account_info)
         token_entry_row.addWidget(self.token_entry)
 
-        # Eye icon for password visibility
-        self.toggle_token_btn = QPushButton()
-        self.toggle_token_btn.setFixedSize(28, 28)
-        self.toggle_token_btn.setText("👁️")
-        self.toggle_token_btn.setToolTip("Show token")
+        # Token visibility control
+        self.toggle_token_btn = QPushButton("Ver")
+        self.toggle_token_btn.setFixedSize(60, 28)
+        self.toggle_token_btn.setToolTip("Mostrar token")
+        self.toggle_token_btn.setAccessibleName("Mostrar token")
         self.toggle_token_btn.clicked.connect(self.toggle_token_visibility)
         token_entry_row.addWidget(self.toggle_token_btn)
 
@@ -115,16 +178,16 @@ class StreamApp(QMainWindow):
         load_buttons_row.setSpacing(5)
 
         # Local Token Button
-        self.load_local_btn = QPushButton("Load from PC")
+        self.load_local_btn = QPushButton("Cargar desde el PC")
         self.load_local_btn.setFixedHeight(30)
-        self.load_local_btn.setToolTip("Load token from Streamlabs desktop app data")
+        self.load_local_btn.setToolTip("Cargar el token desde los datos de Streamlabs para escritorio")
         self.load_local_btn.clicked.connect(self.load_local_token)
         load_buttons_row.addWidget(self.load_local_btn)
 
         # Online Token Button
-        self.load_online_btn = QPushButton("Load from Web")
+        self.load_online_btn = QPushButton("Cargar desde la web")
         self.load_online_btn.setFixedHeight(30)
-        self.load_online_btn.setToolTip("Get token through browser login")
+        self.load_online_btn.setToolTip("Obtener el token iniciando sesión en el navegador")
         self.load_online_btn.clicked.connect(self.fetch_online_token)
         load_buttons_row.addWidget(self.load_online_btn)
         self.cancel_login_btn = QPushButton("Cancelar")
@@ -134,6 +197,11 @@ class StreamApp(QMainWindow):
         load_buttons_row.addWidget(self.cancel_login_btn)
 
         token_layout.addLayout(load_buttons_row)
+        self.change_account_btn = QPushButton("Cambiar cuenta")
+        self.change_account_btn.setFixedHeight(30)
+        self.change_account_btn.setToolTip("Borrar la cuenta guardada en este generador e iniciar sesión con otra")
+        self.change_account_btn.clicked.connect(self.change_account)
+        token_layout.addWidget(self.change_account_btn)
         self.login_status = QLabel("")
         self.login_status.setWordWrap(True)
         self.login_status.setTextFormat(Qt.PlainText)
@@ -146,24 +214,28 @@ class StreamApp(QMainWindow):
             binary_row.setSpacing(5)
 
             self.binary_location_entry = QLineEdit()
-            self.binary_location_entry.setPlaceholderText("Custom Chrome binary path (optional)")
+            self.binary_location_entry.setPlaceholderText("Ruta personalizada de Chrome (opcional)")
             self.binary_location_entry.setFixedHeight(28)
-            self.binary_location_entry.setToolTip("Leave empty to auto-detect Chrome path on Linux")
+            self.binary_location_entry.setToolTip("Déjala vacía para detectar Chrome automáticamente en Linux")
             binary_row.addWidget(self.binary_location_entry)
             
             token_layout.addLayout(binary_row)
 
 
         # Account Info Section
-        account_info_label = QLabel("Account Information")
+        account_info_label = QLabel("Información de la cuenta")
         account_info_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         token_layout.addWidget(account_info_label)
 
         # Username
+        field_label_width = max(
+            self.fontMetrics().horizontalAdvance(text)
+            for text in ("Nombre de usuario:", "Estado:", "Puede emitir:")
+        ) + 8
         username_row = QHBoxLayout()
         username_row.setSpacing(5)
-        username_label = QLabel("Username:")
-        username_label.setFixedWidth(100)
+        username_label = QLabel("Nombre de usuario:")
+        username_label.setFixedWidth(field_label_width)
         self.tiktok_username = QLineEdit()
         self.tiktok_username.setReadOnly(True)
         self.tiktok_username.setFixedHeight(26)
@@ -174,8 +246,8 @@ class StreamApp(QMainWindow):
         # Status
         status_row = QHBoxLayout()
         status_row.setSpacing(5)
-        status_label = QLabel("Status:")
-        status_label.setFixedWidth(100)
+        status_label = QLabel("Estado:")
+        status_label.setFixedWidth(field_label_width)
         self.app_status = QLineEdit()
         self.app_status.setReadOnly(True)
         self.app_status.setToolTip("Estado del acceso de la cuenta en Streamlabs; no indica recepción de vídeo.")
@@ -187,8 +259,8 @@ class StreamApp(QMainWindow):
         # Go Live Status
         live_row = QHBoxLayout()
         live_row.setSpacing(5)
-        live_label = QLabel("Can Go Live:")
-        live_label.setFixedWidth(100)
+        live_label = QLabel("Puede emitir:")
+        live_label.setFixedWidth(field_label_width)
         self.can_go_live = QLineEdit()
         self.can_go_live.setReadOnly(True)
         self.can_go_live.setToolTip("Permiso para preparar una sesión; no confirma que TikTok reciba vídeo.")
@@ -198,9 +270,9 @@ class StreamApp(QMainWindow):
         token_layout.addLayout(live_row)
         
         # Refresh account info button
-        refresh_btn = self.refresh_btn = QPushButton("Refresh Account Info")
+        refresh_btn = self.refresh_btn = QPushButton("Actualizar información de la cuenta")
         refresh_btn.setFixedHeight(30)
-        refresh_btn.setToolTip("Refresh account information")
+        refresh_btn.setToolTip("Actualizar la información de la cuenta")
         refresh_btn.clicked.connect(self.refresh_account_info)
         token_layout.addWidget(refresh_btn)
 
@@ -208,7 +280,7 @@ class StreamApp(QMainWindow):
         token_layout.addStretch()
 
         # Stream Details
-        stream_group = QGroupBox("Stream Details")
+        stream_group = QGroupBox("Detalles de la transmisión")
         left_column.addWidget(stream_group)
         stream_layout = QVBoxLayout()
         stream_layout.setContentsMargins(8, 8, 8, 8)  # Left, Top, Right, Bottom margins
@@ -216,7 +288,7 @@ class StreamApp(QMainWindow):
         stream_group.setLayout(stream_layout)
 
         # Stream Title
-        title_label = QLabel("Stream Title:")
+        title_label = QLabel("Título de la transmisión:")
         title_label.setStyleSheet("font-weight: bold;")
         stream_layout.addWidget(title_label)
         self.stream_title = QLineEdit()
@@ -224,7 +296,7 @@ class StreamApp(QMainWindow):
         stream_layout.addWidget(self.stream_title)
 
         # Game Category
-        game_label = QLabel("Game Category:")
+        game_label = QLabel("Categoría del juego:")
         game_label.setStyleSheet("font-weight: bold;")
         stream_layout.addWidget(game_label)
         self.game_category = QLineEdit()
@@ -241,7 +313,7 @@ class StreamApp(QMainWindow):
         stream_layout.addWidget(self.suggestions_list)
 
         # Mature Checkbox
-        self.mature_checkbox = QCheckBox("Enable mature content")
+        self.mature_checkbox = QCheckBox("Activar contenido para adultos")
         self.mature_checkbox.setStyleSheet("padding: 2px;")  # Reduce internal padding
         stream_layout.addWidget(self.mature_checkbox)
 
@@ -249,9 +321,9 @@ class StreamApp(QMainWindow):
         stream_layout.addStretch()
 
         # Right column (Controls)
-        control_group = QGroupBox("Stream Control")
+        control_group = QGroupBox("Control de transmisión")
         control_group.setMinimumWidth(250)  # Set a minimum width for the control column
-        main_layout.addWidget(control_group)
+        content_layout.addWidget(control_group)
 
         control_layout = QVBoxLayout()
         control_layout.setContentsMargins(8, 12, 8, 8)  # Tighter margins
@@ -262,13 +334,15 @@ class StreamApp(QMainWindow):
         button_row = QHBoxLayout()
         button_row.setSpacing(5)  # Tight spacing between buttons
 
-        self.go_live_btn = QPushButton("Go Live")
+        self.go_live_btn = QPushButton("Preparar transmisión")
+        self.go_live_btn.setObjectName("primaryAction")
         self.go_live_btn.setEnabled(False)
         self.go_live_btn.clicked.connect(self.start_stream)
         self.go_live_btn.setFixedHeight(32)  # Consistent button height
         button_row.addWidget(self.go_live_btn)
 
-        self.end_live_btn = QPushButton("End Live")
+        self.end_live_btn = QPushButton("Finalizar transmisión")
+        self.end_live_btn.setObjectName("dangerAction")
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.clicked.connect(self.end_stream)
         self.end_live_btn.setFixedHeight(32)
@@ -277,7 +351,7 @@ class StreamApp(QMainWindow):
         control_layout.addLayout(button_row)
 
         self.live_status = QLabel("Sin sesión preparada en este generador")
-        self.live_status.setStyleSheet("color: #595959; font-weight: bold;")
+        self.live_status.setStyleSheet(f"color: {BRAND_COLORS['muted']}; font-weight: bold;")
         self.live_status.setWordWrap(True)
         self.live_status.setMinimumHeight(48)
         self.live_status.setTextFormat(Qt.PlainText)
@@ -297,7 +371,7 @@ class StreamApp(QMainWindow):
         control_layout.addWidget(self.resolve_session_btn)
 
         # URL Section
-        url_label = QLabel("Stream URL:")
+        url_label = QLabel("URL de transmisión:")
         url_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
         control_layout.addWidget(url_label)
 
@@ -306,13 +380,13 @@ class StreamApp(QMainWindow):
         self.stream_url.setFixedHeight(28)  # Compact height
         control_layout.addWidget(self.stream_url)
 
-        self.copy_url_btn = QPushButton("Copy URL")
+        self.copy_url_btn = QPushButton("Copiar URL")
         self.copy_url_btn.setFixedHeight(28)
         self.copy_url_btn.clicked.connect(lambda: self.copy_to_clipboard(self.stream_url))
         control_layout.addWidget(self.copy_url_btn)
 
         # Key Section
-        key_label = QLabel("Stream Key:")
+        key_label = QLabel("Clave de transmisión:")
         key_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
         control_layout.addWidget(key_label)
 
@@ -322,7 +396,7 @@ class StreamApp(QMainWindow):
         self.stream_key.setFixedHeight(28)
         control_layout.addWidget(self.stream_key)
 
-        self.copy_key_btn = QPushButton("Copy Key")
+        self.copy_key_btn = QPushButton("Copiar clave")
         self.copy_key_btn.setFixedHeight(28)
         self.copy_key_btn.clicked.connect(lambda: self.copy_to_clipboard(self.stream_key))
         control_layout.addWidget(self.copy_key_btn)
@@ -337,33 +411,139 @@ class StreamApp(QMainWindow):
         bottom_buttons = QHBoxLayout()
         left_column.addLayout(bottom_buttons)
 
-        self.save_btn = QPushButton("Save Config")
+        self.save_btn = QPushButton("Guardar configuración")
         self.save_btn.clicked.connect(lambda: self.save_config())
         bottom_buttons.addWidget(self.save_btn)
 
-        self.help_btn = QPushButton("Help")
+        self.help_btn = QPushButton("Ayuda")
         self.help_btn.clicked.connect(self.show_help)
         bottom_buttons.addWidget(self.help_btn)
-        
-        self.donate_btn = QPushButton("☕ Donate")
-        self.donate_btn.setToolTip("Support the developer")
-        self.donate_btn.clicked.connect(lambda: QDesktopServices.openUrl("https://buymeacoffee.com/loukious"))
-        bottom_buttons.addWidget(self.donate_btn)
 
-        self.monitor_btn = QPushButton("Open Live Monitor")
+        self.monitor_btn = QPushButton("Abrir Live Monitor")
         self.monitor_btn.clicked.connect(self.open_live_monitor)
         bottom_buttons.addWidget(self.monitor_btn)
 
+    def _apply_brand_theme(self):
+        colors = BRAND_COLORS
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {colors['background']};
+                color: {colors['text']};
+            }}
+            QGroupBox {{
+                border: 1px solid {colors['border']};
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 8px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: {colors['red_light']};
+            }}
+            QLabel#brandTitle {{
+                color: {colors['text']};
+                font-size: 18px;
+                font-weight: 700;
+            }}
+            QLabel#brandSubtitle {{
+                color: {colors['muted']};
+                font-size: 11px;
+            }}
+            QLineEdit, QListWidget {{
+                background-color: {colors['surface']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 5px;
+                selection-background-color: {colors['red']};
+                selection-color: {colors['text']};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {colors['red_light']};
+            }}
+            QLineEdit:read-only {{
+                color: {colors['muted']};
+            }}
+            QListWidget::item:selected {{
+                background-color: {colors['red']};
+                color: {colors['text']};
+            }}
+            QPushButton {{
+                background-color: {colors['control']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 5px;
+                padding: 4px 8px;
+            }}
+            QPushButton:hover {{
+                background-color: #3F3F45;
+                border-color: {colors['red_light']};
+            }}
+            QPushButton:pressed {{
+                background-color: {colors['red_dark']};
+            }}
+            QPushButton:disabled {{
+                background-color: #23232A;
+                color: {colors['disabled']};
+                border-color: #34343A;
+            }}
+            QPushButton#primaryAction {{
+                background-color: {colors['red']};
+                border-color: {colors['red']};
+                font-weight: 700;
+            }}
+            QPushButton#primaryAction:hover {{
+                background-color: {colors['red_light']};
+                border-color: {colors['red_light']};
+            }}
+            QPushButton#primaryAction:disabled {{
+                background-color: #23232A;
+                color: {colors['disabled']};
+                border-color: #34343A;
+            }}
+            QPushButton#dangerAction {{
+                border-color: {colors['red']};
+                color: {colors['red_light']};
+            }}
+            QPushButton#dangerAction:disabled {{
+                background-color: #23232A;
+                color: {colors['disabled']};
+                border-color: #34343A;
+            }}
+            QCheckBox {{
+                color: {colors['text']};
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {colors['muted']};
+                border-radius: 3px;
+                background-color: {colors['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {colors['red']};
+                border-color: {colors['red']};
+            }}
+            QToolTip {{
+                background-color: {colors['surface']};
+                color: {colors['text']};
+                border: 1px solid {colors['red']};
+            }}
+        """)
+
     def toggle_token_visibility(self):
-        """Toggle token visibility and update emoji"""
+        """Alterna la visibilidad del token."""
         if self.token_entry.echoMode() == QLineEdit.Normal:
             self.token_entry.setEchoMode(QLineEdit.Password)
-            self.toggle_token_btn.setText("👁️")  # Closed eye
-            self.toggle_token_btn.setToolTip("Show token")
+            self.toggle_token_btn.setText("Ver")
+            self.toggle_token_btn.setToolTip("Mostrar token")
+            self.toggle_token_btn.setAccessibleName("Mostrar token")
         else:
             self.token_entry.setEchoMode(QLineEdit.Normal)
-            self.toggle_token_btn.setText("👁️‍🗨️")  # Eye with speech bubble (visible)
-            self.toggle_token_btn.setToolTip("Hide token")
+            self.toggle_token_btn.setText("Ocultar")
+            self.toggle_token_btn.setToolTip("Ocultar token")
+            self.toggle_token_btn.setAccessibleName("Ocultar token")
 
     def handle_token_change(self):
         self._sync_controls()
@@ -371,12 +551,12 @@ class StreamApp(QMainWindow):
     def _set_live_state(self, state, detail=""):
         self.live_state = state
         labels = {
-            "starting": ("Creando sesión de TikTok…", "color: #8a5200; font-weight: bold;"),
-            "prepared": ("Sesión de TikTok preparada", "color: #8a5200; font-weight: bold;"),
-            "uncertain": ("Estado de la sesión sin confirmar", "color: #8a5200; font-weight: bold;"),
-            "ending": ("Solicitando cierre de la sesión…", "color: #8a5200; font-weight: bold;"),
-            "offline": ("Sin sesión preparada en este generador", "color: #595959; font-weight: bold;"),
-            "error": ("Error de sesión", "color: #b00020; font-weight: bold;"),
+            "starting": ("Creando sesión de TikTok…", f"color: {BRAND_COLORS['warning']}; font-weight: bold;"),
+            "prepared": ("Sesión de TikTok preparada", f"color: {BRAND_COLORS['warning']}; font-weight: bold;"),
+            "uncertain": ("Estado de la sesión sin confirmar", f"color: {BRAND_COLORS['warning']}; font-weight: bold;"),
+            "ending": ("Solicitando cierre de la sesión…", f"color: {BRAND_COLORS['warning']}; font-weight: bold;"),
+            "offline": ("Sin sesión preparada en este generador", f"color: {BRAND_COLORS['muted']}; font-weight: bold;"),
+            "error": ("Error de sesión", f"color: {BRAND_COLORS['red_light']}; font-weight: bold;"),
         }
         text, style = labels.get(state, labels["error"])
         self.live_status.setText(f"{text}{(' — ' + detail) if detail else ''}")
@@ -385,7 +565,7 @@ class StreamApp(QMainWindow):
 
     def load_config(self):
         try:
-            with open("config.json", "r") as file:
+            with open(self.config_path, "r") as file:
                 data = json.load(file)
         except:
             data = {}
@@ -394,7 +574,6 @@ class StreamApp(QMainWindow):
         self.stream_title.setText(data.get("title", ""))
         self.game_category.setText(data.get("game", ""))
         self.mature_checkbox.setChecked(data.get("audience_type", "0") == "1")
-        self.suppress_donation_reminder = data.get("suppress_donation_reminder", False)
 
         self.refresh_account_info()
 
@@ -403,8 +582,7 @@ class StreamApp(QMainWindow):
             "title": self.stream_title.text(),
             "game": self.game_category.text(),
             "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
-            "token": self.token_entry.text(),
-            "suppress_donation_reminder": self.suppress_donation_reminder
+            "token": self.token_entry.text()
         }
         if self.stream and (self.stream.id or self.stream.session_uncertain or
                             self._api_busy and self._pending_operation in ("start", "end")):
@@ -412,10 +590,10 @@ class StreamApp(QMainWindow):
                                "account": hashlib.sha256(self._client_token.encode()).hexdigest()}
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=".", prefix=".config-", suffix=".json", delete=False) as file:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=os.path.dirname(self.config_path), prefix=".config-", suffix=".json", delete=False) as file:
                 temporary = file.name
                 json.dump(data, file)
-            os.replace(temporary, "config.json")
+            os.replace(temporary, self.config_path)
         except OSError:
             if temporary and os.path.exists(temporary):
                 try:
@@ -425,14 +603,14 @@ class StreamApp(QMainWindow):
             self.live_status.setText("No se pudo guardar el estado local. Comprueba los permisos de la carpeta.")
             return False
         if show_message:
-            QMessageBox.information(self, "Config Saved", "Configuration saved successfully!")
+            QMessageBox.information(self, "Configuración guardada", "La configuración se ha guardado correctamente.")
         return True
 
     def _sync_controls(self):
         known = bool(self.stream and self.stream.id)
         uncertain = bool(self.stream and self.stream.session_uncertain)
         login_pending = self._online_retriever is not None
-        locked = self._api_busy or known or uncertain or login_pending
+        locked = self._api_busy or known or uncertain or login_pending or self._account_clear_failed
         current_account = bool(self.stream and self._client_token == self.token_entry.text().strip())
         self.go_live_btn.setEnabled(current_account and self._can_go_live and not locked)
         self.end_live_btn.setEnabled(known and not self._api_busy)
@@ -440,7 +618,17 @@ class StreamApp(QMainWindow):
         self.load_local_btn.setEnabled(not locked)
         self.load_online_btn.setEnabled(not locked)
         self.cancel_login_btn.setEnabled(login_pending)
-        self.load_online_btn.setText("Esperando sesión…" if login_pending else "Load from Web")
+        self.change_account_btn.setEnabled(
+            bool(self.token_entry.text().strip() or self.stream or self._account_clear_failed) and not login_pending
+            and (not self._api_busy or self._pending_operation == "info")
+        )
+        self.load_online_btn.setText("Esperando sesión…" if login_pending else "Cargar desde la web")
+        if known or uncertain:
+            self.load_online_btn.setToolTip(
+                "Cierra la sesión actual o confirma su cierre en Live Monitor antes de cambiar de cuenta."
+            )
+        else:
+            self.load_online_btn.setToolTip("Abre el navegador para iniciar sesión con otra cuenta")
         self.refresh_btn.setEnabled(not self._api_busy and not login_pending and bool(self.token_entry.text().strip()))
         for control in (self.stream_title, self.game_category, self.mature_checkbox):
             control.setEnabled(not locked)
@@ -488,6 +676,55 @@ class StreamApp(QMainWindow):
         self.stream_key.setEchoMode(QLineEdit.Password)
         self.show_key_btn.setText("Mostrar clave")
 
+    def change_account(self):
+        if self.stream and (self.stream.id or self.stream.session_uncertain):
+            self.login_status.setText(
+                "Finaliza la transmisión actual o confirma su cierre en Live Monitor antes de cambiar de cuenta."
+            )
+            return
+        if self._api_busy and self._pending_operation != "info":
+            self.login_status.setText("Espera a que termine la solicitud antes de cambiar de cuenta.")
+            return
+
+        self.cancel_online_login()
+        self._account_generation += 1
+        self._search_timer.stop()
+        self._search_generation += 1
+        self._search_inflight = False
+        self._categories.clear()
+        self.game_mask_id = ""
+        self.suggestions_list.clear()
+        self.suggestions_list.hide()
+        self.stream = None
+        self._client_token = ""
+        self._saved_session = None
+        self._can_go_live = False
+        self._api_busy = False
+        self._pending_operation = None
+        self.token_entry.clear()
+        self.token_entry.setEchoMode(QLineEdit.Password)
+        self.toggle_token_btn.setText("Ver")
+        self.toggle_token_btn.setToolTip("Mostrar token")
+        self.toggle_token_btn.setAccessibleName("Mostrar token")
+        self.tiktok_username.clear()
+        self.app_status.clear()
+        self.can_go_live.clear()
+        self._clear_credentials()
+        self.load_local_btn.setText("Cargar desde el PC")
+        self._account_cleared = True
+        self._set_live_state("offline", "No hay ninguna cuenta cargada.")
+
+        # Clear the saved identity before another browser login can complete.
+        if self.save_config(False) is False:
+            self._account_clear_failed = True
+            self.login_status.setText(
+                "No se pudo borrar la cuenta guardada. Comprueba los permisos de la carpeta y vuelve a intentar."
+            )
+            self._sync_controls()
+            return
+        self._account_clear_failed = False
+        self.fetch_online_token()
+
     def _finish_api(self, outcome):
         client, operation, result, error = outcome
         if client is not self.stream:
@@ -502,9 +739,9 @@ class StreamApp(QMainWindow):
                 self._set_live_state("uncertain" if client.id or client.session_uncertain else "error", error)
             else:
                 user, application = result.get("user"), result.get("application_status")
-                self.tiktok_username.setText(str(user.get("username", "Unknown")) if isinstance(user, dict) else "Unknown")
-                self.app_status.setText(str(application.get("status", "Unknown")) if isinstance(application, dict) else "Unknown")
-                self.can_go_live.setText(str(self._can_go_live))
+                self.tiktok_username.setText(str(user.get("username", "Desconocido")) if isinstance(user, dict) else "Desconocido")
+                self.app_status.setText(str(application.get("status", "Desconocido")) if isinstance(application, dict) else "Desconocido")
+                self.can_go_live.setText("Sí" if self._can_go_live else "No")
                 if not client.id and not client.session_uncertain:
                     self._set_live_state("offline")
                     self.fetch_game_mask_id(self.game_category.text())
@@ -521,7 +758,7 @@ class StreamApp(QMainWindow):
                 self._clear_credentials()
                 self._set_live_state("offline", "Streamlabs confirmó el cierre.")
             else:
-                self._set_live_state("uncertain", error or "No se confirmó el cierre. Revisa Live Monitor o reintenta End Live.")
+                self._set_live_state("uncertain", error or "No se confirmó el cierre. Revisa Live Monitor o vuelve a intentar finalizar la transmisión.")
         self.save_config(False)
         self._sync_controls()
 
@@ -545,6 +782,9 @@ class StreamApp(QMainWindow):
             self._client_token = token
             self._can_go_live = False
             self._clear_credentials()
+            self.tiktok_username.clear()
+            self.app_status.clear()
+            self.can_go_live.clear()
             restored = self._saved_session
             self._saved_session = None
             if isinstance(restored, dict) and restored.get("account") == hashlib.sha256(token.encode()).hexdigest():
@@ -556,31 +796,45 @@ class StreamApp(QMainWindow):
             self.load_account_info()
         self.save_config(False)
 
-    def _do_restore_local_btn(self):
-        self.load_local_btn.setText("Load from PC")
+    def _do_restore_local_btn(self, generation):
+        if generation != self._account_generation:
+            return
+        self.load_local_btn.setText("Cargar desde el PC")
         self._sync_controls()
 
+    def _apply_local_token(self, outcome):
+        generation, token = outcome
+        if generation == self._account_generation and self._online_retriever is None:
+            self._apply_token(token)
+
+    def _show_local_token_error(self, outcome):
+        generation, message = outcome
+        if generation == self._account_generation:
+            QMessageBox.critical(self, "Error", message)
+
     def load_local_token(self):
+        self._account_generation += 1
+        generation = self._account_generation
         self.load_local_btn.setEnabled(False)
-        self.load_local_btn.setText("Searching…")
+        self.load_local_btn.setText("Buscando…")
 
         def _run():
             try:
                 token = self._find_local_token()
             except Exception as e:
                 print(traceback.format_exc())
-                self._token_error.emit(f"Unexpected error: {e}")
+                self._token_error.emit((generation, "No se pudo buscar el token local. Vuelve a intentar."))
                 return
             finally:
-                self._restore_local_btn.emit()
+                self._restore_local_btn.emit(generation)
 
             if token:
-                self._token_ready.emit(token)
+                self._token_ready.emit((generation, token))
             else:
-                self._token_error.emit(
-                    "No API Token found locally. Make sure Streamlabs is installed "
-                    "and you're logged in using TikTok."
-                )
+                self._token_error.emit((generation,
+                    "No se encontró ningún token de API local. Asegúrate de que Streamlabs está instalado "
+                    "y has iniciado sesión con TikTok."
+                ))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -596,7 +850,7 @@ class StreamApp(QMainWindow):
             )
         else:
             QTimer.singleShot(0, lambda: QMessageBox.critical(
-                self, "Error", "Unsupported operating system for local token retrieval."
+                self, "Error", "Este sistema operativo no permite recuperar el token local."
             ))
             return None
 
@@ -617,19 +871,45 @@ class StreamApp(QMainWindow):
         return None
 
     def fetch_online_token(self):
+        if self._account_clear_failed:
+            self.login_status.setText("Pulsa Cambiar cuenta para volver a intentar borrar la cuenta guardada antes de iniciar sesión.")
+            return
         if self._online_retriever or self._api_busy or self.stream and (self.stream.id or self.stream.session_uncertain):
             return
         retriever = TokenRetriever()
+        self._account_generation += 1
         self._online_retriever = retriever
-        self.login_status.setText("Completa el inicio de sesión en el navegador o pulsa Cancelar.")
+        self.load_local_btn.setText("Cargar desde el PC")
+        self.login_status.setText(
+            "Cuenta anterior eliminada de este generador. En TikTok pulsa «Cambiar de cuenta» y elige la nueva."
+            if self._account_cleared else
+            "Abriendo el inicio de sesión de TikTok. Puedes pulsar Cancelar para reintentar."
+        )
         self._sync_controls()
+
+        def launch_login_page(url):
+            if retriever.cancelled.is_set():
+                return False
+            if open_browser(url):
+                return True
+
+            request = {
+                "retriever": retriever,
+                "url": url,
+                "opened": False,
+                "completed": threading.Event(),
+            }
+            self._login_browser_requested.emit(request)
+            # The signal is handled by Qt's GUI thread. Do not let the worker
+            # wait forever if the window is closing or the event loop stops.
+            if not request["completed"].wait(timeout=5):
+                return False
+            return request["opened"]
 
         def _run():
             token = None
             try:
-                # Match upstream: Python's default browser opener runs on the
-                # worker, keeping shell/browser launch off the GUI thread.
-                token = retriever.retrieve_token()
+                token = retriever.retrieve_token(browser_opener=launch_login_page)
             except Exception:
                 retriever.last_error = "No se pudo iniciar la sesión web. Puedes reintentar."
             finally:
@@ -640,13 +920,28 @@ class StreamApp(QMainWindow):
 
         threading.Thread(target=_run, daemon=True, name="streamlabs-web-login").start()
 
+    def _open_login_browser(self, request):
+        """Open OAuth in the native browser launcher on the GUI thread."""
+        retriever = request.get("retriever")
+        opened = False
+        if retriever is self._online_retriever and not retriever.cancelled.is_set():
+            try:
+                opened = bool(QDesktopServices.openUrl(QUrl(request["url"])))
+            except Exception:
+                opened = False
+        request["opened"] = opened
+        request["completed"].set()
+
     def cancel_online_login(self):
         retriever = self._online_retriever
         if retriever is None:
             return
         retriever.cancel()
         self._online_retriever = None
-        self.login_status.setText("Inicio de sesión cancelado. Puedes reintentar.")
+        self.login_status.setText(
+            "Inicio cancelado. No hay ninguna cuenta cargada. Pulsa Cargar desde la web para reintentar."
+            if self._account_cleared else "Inicio de sesión cancelado. Puedes reintentar."
+        )
         self._sync_controls()
 
     def _finish_online_token(self, outcome):
@@ -660,13 +955,15 @@ class StreamApp(QMainWindow):
             self.login_status.setText("Inicio de sesión completado.")
             self._apply_token(token)
         else:
-            self.login_status.setText(retriever.last_error or "No se completó el inicio de sesión. Puedes reintentar.")
+            message = retriever.last_error or "No se completó el inicio de sesión. Puedes reintentar."
+            self.login_status.setText(message + (" No hay ninguna cuenta cargada." if self._account_cleared else ""))
 
     def _apply_token(self, token: str):
         """Apply a freshly retrieved token — always called on the GUI thread."""
         if self._api_busy or self.stream and (self.stream.id or self.stream.session_uncertain):
             return
         self.token_entry.setText(token)
+        self._account_cleared = False
         self.refresh_account_info()
 
     def fetch_game_mask_id(self, game_name):
@@ -706,8 +1003,10 @@ class StreamApp(QMainWindow):
 
     def _finish_search(self, outcome):
         client, generation, query, categories, error = outcome
+        if client is not self.stream:
+            return
         self._search_inflight = False
-        if client is not self.stream or generation != self._search_generation or query != self.game_category.text().strip():
+        if generation != self._search_generation or query != self.game_category.text().strip():
             if self.game_category.text().strip():
                 self._search_timer.start()
             return
@@ -800,18 +1099,18 @@ class StreamApp(QMainWindow):
 
     def copy_to_clipboard(self, widget):
         QApplication.clipboard().setText(widget.text())
-        QMessageBox.information(self, "Copied", "Text copied to clipboard!")
+        QMessageBox.information(self, "Copiado", "El texto se copió al portapapeles.")
 
     def show_help(self):
-        help_text = """1. Apply for LIVE access on Streamlabs
-2. Install Streamlabs and login to TikTok
-3. Use this app to get Streamlabs token
-4. Go live!"""
+        help_text = """1. Solicita acceso LIVE en Streamlabs
+2. Instala Streamlabs e inicia sesión con TikTok
+3. Usa esta aplicación para obtener el token de Streamlabs
+4. Prepara la transmisión"""
         
         msg = QMessageBox(self)
-        msg.setWindowTitle("Help")
+        msg.setWindowTitle("Ayuda")
         msg.setText(help_text)
-        msg.addButton(QMessageBox.Ok)
+        msg.addButton("Aceptar", QMessageBox.AcceptRole)
         msg.exec()
 
 
@@ -821,52 +1120,24 @@ class StreamApp(QMainWindow):
 
         if update_info and version.parse(update_info["latest"]) > version.parse(update_info["current"]):
             msg = QMessageBox(self)
-            msg.setWindowTitle("Update Available")
+            msg.setWindowTitle("Actualización disponible")
             msg.setText(
-                f"Version {update_info['latest']} is available!\n\n"
-                f"Current version: {update_info['current']}\n\n"
-                "Would you like to download it now?"
+                f"Hay una nueva versión disponible: {update_info['latest']}\n\n"
+                f"Versión actual: {update_info['current']}\n\n"
+                "¿Quieres abrir la página de descarga?"
             )
             
             # Use standard buttons for better compatibility
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg.setDefaultButton(QMessageBox.Yes)
+            msg.button(QMessageBox.Yes).setText("Sí")
+            msg.button(QMessageBox.No).setText("No")
             
             if msg.exec() == QMessageBox.Yes:
                 QDesktopServices.openUrl(update_info["url"])
 
-    def show_donation_reminder(self):
-        
-        if self.suppress_donation_reminder:
-            return
-        
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Support Development")
-        msg.setText("Enjoying this app? Consider supporting its development!")
-        
-        dont_show_again = QCheckBox("Never show this message again")
-        msg.setCheckBox(dont_show_again)
-        
-        # Add buttons
-        donate_btn = msg.addButton("Donate Now", QMessageBox.AcceptRole)
-        msg.addButton(QMessageBox.Ok)
-        
-        # Make the "Donate Now" button more prominent
-        donate_btn.setStyleSheet("font-weight: bold;")
-        
-        # Execute the message box
-        msg.exec()
-        
-        if dont_show_again.isChecked():
-            self.suppress_donation_reminder = True
-            self.save_config(False)
-        # Handle button clicks
-        if msg.clickedButton() == donate_btn:
-            QDesktopServices.openUrl("https://buymeacoffee.com/loukious")
-
     def open_live_monitor(self):
-        QDesktopServices.openUrl("https://livecenter.tiktok.com/live_monitor?lang=en-US")
+        QDesktopServices.openUrl("https://livecenter.tiktok.com/live_monitor?lang=es-ES")
 
     def handle_ui_update(self):
         self.load_account_info()

@@ -72,16 +72,16 @@ class TokenRetriever:
 
                 if params.get("success", [""])[0] == "true" and "code" in params:
                     retriever._auth_code = params["code"][0]
-                    body = b"<h2>Authentication successful! You can close this tab.</h2>"
+                    body = b"<h2>Autenticaci\xc3\xb3n correcta. Ya puedes cerrar esta pesta\xc3\xb1a.</h2>"
                     self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
                 else:
-                    body = b"<h2>Authentication failed. Please try again.</h2>"
+                    body = b"<h2>La autenticaci\xc3\xb3n fall\xc3\xb3. Int\xc3\xa9ntalo de nuevo.</h2>"
                     self.send_response(400)
-                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
@@ -131,7 +131,7 @@ class TokenRetriever:
 
         auth_url = (
             f"https://streamlabs.com/slobs/login?"
-            f"skip_splash=true&external=electron&tiktok&force_verify"
+            f"skip_splash=true&external=electron&tiktok&force_verify=true&prompt=login"
             f"&origin=slobs&port={port}"
             f"&code_challenge={self.code_challenge}&code_flow=true"
         )
