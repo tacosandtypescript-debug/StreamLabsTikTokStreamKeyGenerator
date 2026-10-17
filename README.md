@@ -27,7 +27,11 @@ Pulsa **Cambiar cuenta** para borrar del generador el token, el usuario y las cl
 anteriores y abrir un nuevo acceso. En la página de TikTok, pulsa **Cambiar de cuenta**
 y elige la cuenta que quieres usar. Si cancelas, la cuenta anterior no se restaura.
 Si hay una transmisión preparada, finalízala o confirma su cierre en Live Monitor
-antes de cambiar. Los datos se guardan en `config.json`, junto a la aplicación.
+antes de cambiar. Los datos se guardan en `config.json`, junto a la aplicación. Si
+esa carpeta no es escribible (por ejemplo, Program Files o una app de macOS), se
+usa la configuración del usuario: `%APPDATA%\FPV Stream`,
+`~/Library/Application Support/FPV Stream` o `~/.config/fpv-stream`, migrando el
+archivo anterior la primera vez.
 
 Esta opción no cierra la sesión de TikTok en otras pestañas ni cambia la cuenta
 guardada en Streamlabs Desktop.

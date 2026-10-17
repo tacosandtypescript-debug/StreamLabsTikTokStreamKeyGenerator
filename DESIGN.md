@@ -113,7 +113,9 @@ The native `Cambiar cuenta` button clears the generator's token, username, acces
 status, stream URL/key and cached account results before opening a new web login.
 Persist the empty account atomically first; a write failure blocks login and offers
 retry rather than claiming that the stored account was removed. `config_path`
-defaults to config.json beside the application, independent of the launch folder.
+defaults to config.json beside the application when that folder is writable,
+otherwise to the per-user configuration directory, independent of the launch folder.
+A legacy file is copied to the new location on first use.
 Title, category and audience settings remain drafts for the next account.
 
 Cancel or failed login leaves the generator signed out. Only the new attempt can

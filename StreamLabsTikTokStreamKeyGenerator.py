@@ -2,6 +2,7 @@ import glob
 import os
 import platform
 import re
+import shutil
 import sys
 import json
 import threading
@@ -22,6 +23,42 @@ from packaging import version
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BRAND_LOGO_PATH = os.path.join(APP_DIR, "branding", "fpv-stream-logo.svg")
+CONFIG_FILENAME = "config.json"
+
+
+def _user_config_dir():
+    """Per-user fallback for installations where the app folder is read-only."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "FPV Stream")
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~/Library/Application Support"), "FPV Stream")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "fpv-stream")
+
+
+def _app_dir_is_writable():
+    try:
+        with tempfile.NamedTemporaryFile(dir=APP_DIR, prefix=".config-probe-", delete=True):
+            return True
+    except OSError:
+        return False
+
+
+def default_config_path():
+    """Prefer a portable config beside the app, fall back to the user profile."""
+    app_config = os.path.join(APP_DIR, CONFIG_FILENAME)
+    if _app_dir_is_writable():
+        return os.path.abspath(app_config)
+    fallback = os.path.join(_user_config_dir(), CONFIG_FILENAME)
+    try:
+        os.makedirs(os.path.dirname(fallback), exist_ok=True)
+        if os.path.exists(app_config) and not os.path.exists(fallback):
+            shutil.copy2(app_config, fallback)
+    except OSError:
+        pass
+    return os.path.abspath(fallback)
+
 BRAND_COLORS = {
     "red": "#DF2531",
     "red_light": "#FF4A54",
@@ -49,7 +86,7 @@ class StreamApp(QMainWindow):
 
     def __init__(self, *, startup_checks=True, config_path=None):
         super().__init__()
-        self.config_path = os.path.abspath(config_path or os.path.join(APP_DIR, "config.json"))
+        self.config_path = os.path.abspath(config_path or default_config_path())
         self.stream = None
         self.game_mask_id = ""
         self.live_state = "offline"
@@ -630,7 +667,9 @@ class StreamApp(QMainWindow):
                                "account": hashlib.sha256(self._client_token.encode()).hexdigest()}
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=os.path.dirname(self.config_path), prefix=".config-", suffix=".json", delete=False) as file:
+            directory = os.path.dirname(self.config_path)
+            os.makedirs(directory, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, prefix=".config-", suffix=".json", delete=False) as file:
                 temporary = file.name
                 json.dump(data, file)
             os.replace(temporary, self.config_path)
