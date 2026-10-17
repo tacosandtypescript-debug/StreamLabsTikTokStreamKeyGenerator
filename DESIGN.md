@@ -48,7 +48,7 @@ animation, font or dependency.
 | Account switching | StreamApp.change_account, guarded token callbacks, fixed config_path | Clear/restart/cancel/stale-result GUI tests |
 | Credentials form | Existing QLineEdit and copy buttons | Masking and clear-state GUI tests |
 | Dialog | Native QMessageBox, default Cancel for uncertain-state recovery | GUI cancellation test |
-| Search | QTimer debounce, generation check, one in-flight request | Stale-result GUI test |
+| Search | QTimer debounce, generation check, one in-flight request, keyboard selection | Stale-result and keyboard GUI tests |
 | Brand chrome | branding/fpv-stream-logo.svg, StreamApp._apply_brand_theme | UI smoke test and Qt icon load |
 | Scroll/control chrome | QScrollArea + platform QStyle | 800×600 scroll test and Qt offscreen screenshots |
 

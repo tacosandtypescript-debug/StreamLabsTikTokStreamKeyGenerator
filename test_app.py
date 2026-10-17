@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QScrollArea
 from Stream import Stream
@@ -413,6 +413,21 @@ class AppTests(unittest.TestCase):
         self.wait_for(lambda: not self.window._api_busy)
         self.assertEqual(self.window.live_state, "uncertain")
         self.assertNotIn("UNIT-SECRET", self.window.live_status.text())
+
+    def test_category_suggestions_support_keyboard_navigation(self):
+        self.window.show()
+        self.app.processEvents()
+        self.window._categories = {"Gaming": "12"}
+        self.window.update_suggestions_list([{"full_name": "Gaming", "game_mask_id": "12"}])
+        QTest.keyClick(self.window.game_category, Qt.Key_Down)
+        self.assertEqual(self.window.suggestions_list.currentRow(), 0)
+        QTest.keyClick(self.window.suggestions_list, Qt.Key_Return)
+        self.assertEqual(self.window.game_category.text(), "Gaming")
+        self.assertEqual(self.window.game_mask_id, "12")
+        self.assertFalse(self.window.suggestions_list.isVisible())
+        self.window.update_suggestions_list([{"full_name": "Gaming", "game_mask_id": "12"}])
+        QTest.keyClick(self.window.suggestions_list, Qt.Key_Escape)
+        self.assertFalse(self.window.suggestions_list.isVisible())
 
     def test_copy_shows_a_tooltip_not_a_modal_dialog(self):
         with patch.object(QMessageBox, 'information') as modal, \

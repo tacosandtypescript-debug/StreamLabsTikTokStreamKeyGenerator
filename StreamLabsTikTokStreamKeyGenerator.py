@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
                               QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame,
                               QScrollArea, QToolTip)
-from PySide6.QtCore import Signal, QTimer, Qt, QUrl, QLockFile
+from PySide6.QtCore import Signal, QTimer, Qt, QUrl, QLockFile, QEvent
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QDesktopServices, QIcon, QCursor
 from Stream import Stream
@@ -456,6 +456,8 @@ class StreamApp(QMainWindow):
         self.suggestions_list.hide()
         self.suggestions_list.setFixedHeight(100)  # Limit height of suggestions
         self.suggestions_list.itemClicked.connect(self.handle_suggestion_selected)
+        self.suggestions_list.installEventFilter(self)
+        self.game_category.installEventFilter(self)
         stream_layout.addWidget(self.suggestions_list)
 
         # Mature Checkbox
@@ -1224,6 +1226,36 @@ class StreamApp(QMainWindow):
             self.suggestions_list.addItem(QListWidgetItem(category['full_name']))
         self.suggestions_list.setVisible(bool(categories))
 
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            key = event.key()
+            if obj is self.game_category:
+                visible = self.suggestions_list.isVisible()
+                if key == Qt.Key_Down and visible and self.suggestions_list.count():
+                    self.suggestions_list.setCurrentRow(0)
+                    self.suggestions_list.setFocus()
+                    return True
+                if key in (Qt.Key_Return, Qt.Key_Enter) and visible and self.suggestions_list.count():
+                    self.handle_suggestion_selected(self.suggestions_list.item(0))
+                    return True
+                if key == Qt.Key_Escape:
+                    self.suggestions_list.hide()
+                    return True
+            elif obj is self.suggestions_list:
+                if key in (Qt.Key_Return, Qt.Key_Enter):
+                    item = self.suggestions_list.currentItem() or self.suggestions_list.item(0)
+                    if item is not None:
+                        self.handle_suggestion_selected(item)
+                    return True
+                if key == Qt.Key_Escape:
+                    self.suggestions_list.hide()
+                    self.game_category.setFocus()
+                    return True
+                if key == Qt.Key_Up and self.suggestions_list.currentRow() <= 0:
+                    self.game_category.setFocus()
+                    return True
+        return super().eventFilter(obj, event)
+
     def handle_suggestion_selected(self, item):
         self._search_generation += 1
         self._search_timer.stop()
@@ -1232,6 +1264,7 @@ class StreamApp(QMainWindow):
         self.game_category.blockSignals(False)
         self.game_mask_id = self._categories.get(item.text(), "")
         self.suggestions_list.hide()
+        self.game_category.setFocus()
 
     def start_stream(self):
         if self._api_busy or not self.stream or self.stream.id or self.stream.session_uncertain:
