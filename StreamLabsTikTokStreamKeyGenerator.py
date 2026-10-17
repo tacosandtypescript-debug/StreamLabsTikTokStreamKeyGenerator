@@ -146,6 +146,7 @@ class StreamApp(QMainWindow):
     _login_browser_requested = Signal(object)
     _api_done = Signal(object)
     _search_done = Signal(object)
+    _update_ready = Signal(object)
 
     def __init__(self, *, startup_checks=True, config_path=None):
         super().__init__()
@@ -186,6 +187,7 @@ class StreamApp(QMainWindow):
         self._login_browser_requested.connect(self._open_login_browser)
         self._api_done.connect(self._finish_api)
         self._search_done.connect(self._finish_search)
+        self._update_ready.connect(self._show_update)
         self.load_config()
         self._sync_controls()
 
@@ -1308,26 +1310,44 @@ class StreamApp(QMainWindow):
 
 
     def check_updates_on_startup(self):
-        """Non-blocking update check with GUI notification"""
-        update_info = VersionChecker.check_update()
+        """Run the update check on a worker and deliver the result by signal."""
+        threading.Thread(target=self._check_updates_worker, daemon=True, name="update-check").start()
 
-        if update_info and version.parse(update_info["latest"]) > version.parse(update_info["current"]):
-            msg = QMessageBox(self)
-            msg.setWindowTitle("Actualización disponible")
-            msg.setText(
-                f"Hay una nueva versión disponible: {update_info['latest']}\n\n"
-                f"Versión actual: {update_info['current']}\n\n"
-                "¿Quieres abrir la página de descarga?"
-            )
-            
-            # Use standard buttons for better compatibility
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-            msg.button(QMessageBox.Yes).setText("Sí")
-            msg.button(QMessageBox.No).setText("No")
-            
-            if msg.exec() == QMessageBox.Yes:
-                QDesktopServices.openUrl(update_info["url"])
+    def _check_updates_worker(self):
+        try:
+            update_info = VersionChecker.check_update()
+        except Exception:
+            update_info = None
+        try:
+            self._update_ready.emit(update_info)
+        except RuntimeError:
+            pass
+
+    def _show_update(self, update_info):
+        if not update_info:
+            return
+        try:
+            newer = version.parse(update_info["latest"]) > version.parse(update_info["current"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if not newer:
+            return
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Actualización disponible")
+        msg.setText(
+            f"Hay una nueva versión disponible: {update_info['latest']}\n\n"
+            f"Versión actual: {update_info['current']}\n\n"
+            "¿Quieres abrir la página de descarga?"
+        )
+
+        # Use standard buttons for better compatibility
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.Yes)
+        msg.button(QMessageBox.Yes).setText("Sí")
+        msg.button(QMessageBox.No).setText("No")
+
+        if msg.exec() == QMessageBox.Yes:
+            QDesktopServices.openUrl(update_info["url"])
 
     def open_live_monitor(self):
         QDesktopServices.openUrl("https://livecenter.tiktok.com/live_monitor?lang=es-ES")

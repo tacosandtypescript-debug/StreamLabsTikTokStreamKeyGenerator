@@ -135,6 +135,26 @@ class AppTests(unittest.TestCase):
         self.window.toggle_token_visibility()
         self.assertEqual(self.window.toggle_token_btn.text(), "Ocultar")
 
+    def test_update_check_runs_off_the_gui_thread(self):
+        calls = []
+        def fake_check():
+            calls.append(threading.get_ident())
+            return None
+        with patch('StreamLabsTikTokStreamKeyGenerator.VersionChecker.check_update', side_effect=fake_check):
+            self.window.check_updates_on_startup()
+            self.wait_for(lambda: bool(calls))
+        self.assertNotEqual(calls[0], threading.get_ident())
+
+    def test_update_dialog_is_only_shown_for_a_newer_version(self):
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.No) as dialog:
+            self.window._show_update({'latest': '2.0.8', 'current': '2.0.9', 'url': 'https://example.invalid'})
+        dialog.assert_not_called()
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.No) as dialog, \
+             patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl') as open_url:
+            self.window._show_update({'latest': '2.0.10', 'current': '2.0.9', 'url': 'https://example.invalid'})
+        dialog.assert_called_once()
+        open_url.assert_not_called()
+
     def test_failed_browser_launch_returns_to_retry(self):
         with patch('StreamLabsTikTokStreamKeyGenerator.open_browser', return_value=False), \
              patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl', return_value=False):
