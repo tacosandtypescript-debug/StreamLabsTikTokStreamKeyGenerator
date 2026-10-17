@@ -10,6 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QScrollArea
 from Stream import Stream
 from TokenRetriever import TokenRetriever
@@ -428,6 +429,31 @@ class AppTests(unittest.TestCase):
         self.window.update_suggestions_list([{"full_name": "Gaming", "game_mask_id": "12"}])
         QTest.keyClick(self.window.suggestions_list, Qt.Key_Escape)
         self.assertFalse(self.window.suggestions_list.isVisible())
+
+    def test_close_while_busy_requires_confirmation(self):
+        self.window._api_busy = True
+        event = QCloseEvent()
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Cancel) as question:
+            self.window.closeEvent(event)
+        self.assertFalse(event.isAccepted())
+        question.assert_called_once()
+
+    def test_close_while_busy_can_be_accepted(self):
+        self.window._api_busy = True
+        event = QCloseEvent()
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Close), \
+             patch.object(self.window, 'save_config', return_value=True):
+            self.window.closeEvent(event)
+        self.assertTrue(event.isAccepted())
+
+    def test_close_after_a_failed_save_can_be_cancelled_or_forced(self):
+        for answer, accepted in ((QMessageBox.Cancel, False), (QMessageBox.Close, True)):
+            with self.subTest(answer=answer), \
+                 patch.object(self.window, 'save_config', return_value=False), \
+                 patch.object(QMessageBox, 'question', return_value=answer):
+                event = QCloseEvent()
+                self.window.closeEvent(event)
+                self.assertEqual(event.isAccepted(), accepted)
 
     def test_copy_shows_a_tooltip_not_a_modal_dialog(self):
         with patch.object(QMessageBox, 'information') as modal, \

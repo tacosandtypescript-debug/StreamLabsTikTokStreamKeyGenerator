@@ -87,7 +87,9 @@ they still hold the copied value.
 Manual recovery only clears local state after the user explicitly confirms in
 Live Monitor that the remote session ended. It does not issue an API request and
 does not stop or prove anything remotely. Closing the generator does not end LIVE;
-the UI warns and preserves pending state.
+the UI warns and preserves pending state. A request in progress or a failed journal
+write asks before the window closes, so the user can cancel instead of losing the
+pending session.
 
 ## Verification
 

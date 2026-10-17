@@ -1316,9 +1316,15 @@ class StreamApp(QMainWindow):
 
     def closeEvent(self, event):
         if self._api_busy:
-            self.live_status.setText("Espera a que termine la solicitud antes de cerrar el generador.")
-            event.ignore()
-            return
+            answer = QMessageBox.question(
+                self, "Solicitud en curso",
+                "Hay una solicitud en curso. Si cierras ahora, el resultado podría quedar sin confirmar. "
+                "¿Cerrar el generador de todos modos?",
+                QMessageBox.Close | QMessageBox.Cancel, QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Close:
+                event.ignore()
+                return
         if self.stream and (self.stream.id or self.stream.session_uncertain):
             answer = QMessageBox.question(self, "Sesión pendiente",
                 "Cerrar el generador no termina la sesión de TikTok. Su estado se conservará para volver a revisarlo. "
@@ -1326,7 +1332,16 @@ class StreamApp(QMainWindow):
             if answer != QMessageBox.Close:
                 event.ignore()
                 return
-        self.save_config(False)
+        if self.save_config(False) is False:
+            answer = QMessageBox.question(
+                self, "No se pudo guardar",
+                "No se pudo guardar el estado local. Si cierras ahora podrías perder la sesión pendiente. "
+                "¿Cerrar de todos modos?",
+                QMessageBox.Close | QMessageBox.Cancel, QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Close:
+                event.ignore()
+                return
         self.cancel_online_login()
         self._clear_clipboard_if_unchanged(self._clipboard_text)
         event.accept()
