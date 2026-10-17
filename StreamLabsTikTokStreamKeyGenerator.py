@@ -12,10 +12,10 @@ import tempfile
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
                               QListWidget, QMessageBox, QListWidgetItem, QSizePolicy, QFrame,
-                              QScrollArea)
+                              QScrollArea, QToolTip)
 from PySide6.QtCore import Signal, QTimer, Qt, QUrl, QLockFile
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtGui import QDesktopServices, QIcon, QCursor
 from Stream import Stream
 from TokenRetriever import TokenRetriever
 from BrowserLauncher import open_browser
@@ -1285,7 +1285,7 @@ class StreamApp(QMainWindow):
             self.CLIPBOARD_CLEAR_MS,
             lambda: self._clear_clipboard_if_unchanged(text),
         )
-        QMessageBox.information(self, "Copiado", "El texto se copió al portapapeles.")
+        QToolTip.showText(QCursor.pos(), "Copiado al portapapeles", self)
 
     def _clear_clipboard_if_unchanged(self, text):
         if not text:

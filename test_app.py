@@ -406,6 +406,13 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.window.live_state, "uncertain")
         self.assertNotIn("UNIT-SECRET", self.window.live_status.text())
 
+    def test_copy_shows_a_tooltip_not_a_modal_dialog(self):
+        with patch.object(QMessageBox, 'information') as modal, \
+             patch('StreamLabsTikTokStreamKeyGenerator.QToolTip.showText') as tooltip:
+            self.window.copy_to_clipboard(self.window.stream_key)
+        modal.assert_not_called()
+        tooltip.assert_called_once()
+
     def test_copied_key_is_cleared_from_the_clipboard(self):
         self.window.CLIPBOARD_CLEAR_MS = 0
         self.window.stream_key.setText('secret-key')
