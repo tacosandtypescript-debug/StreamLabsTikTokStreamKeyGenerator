@@ -67,6 +67,42 @@ def instance_key():
     return "fpv-stream-" + digest
 
 
+LOCAL_TOKEN_PATTERN = re.compile(rb'"apiToken":"([a-f0-9]+)"', re.IGNORECASE)
+LOCAL_TOKEN_CHUNK = 4 * 1024 * 1024
+
+
+def local_token_files():
+    """LevelDB files that may contain the Streamlabs API token."""
+    system = platform.system()
+    if system == "Windows":
+        pattern = os.path.expandvars(r"%appdata%\slobs-client\Local Storage\leveldb\*")
+    elif system == "Darwin":
+        pattern = os.path.expanduser(
+            "~/Library/Application Support/slobs-client/Local Storage/leveldb/*"
+        )
+    else:
+        return []
+    files = [path for path in glob.glob(pattern) if path.lower().endswith((".log", ".ldb"))]
+    return sorted(files, key=os.path.getmtime, reverse=True)
+
+
+def token_from_file(path, chunk_size=LOCAL_TOKEN_CHUNK):
+    """Read a LevelDB file in chunks without loading the whole file."""
+    last = None
+    tail = b""
+    with open(path, "rb") as file:
+        while True:
+            chunk = file.read(chunk_size)
+            if not chunk:
+                break
+            data = (tail + chunk).replace(b"\x00", b"")
+            matches = LOCAL_TOKEN_PATTERN.findall(data)
+            if matches:
+                last = matches[-1]
+            tail = data[-4096:]
+    return last.decode("ascii") if last else None
+
+
 class SingleInstance:
     """One generator per config file; ask the existing window to come forward."""
 
@@ -983,6 +1019,11 @@ class StreamApp(QMainWindow):
             QMessageBox.critical(self, "Error", message)
 
     def load_local_token(self):
+        if platform.system() not in ("Windows", "Darwin"):
+            QMessageBox.critical(
+                self, "Error", "Este sistema operativo no permite recuperar el token local."
+            )
+            return
         self._account_generation += 1
         generation = self._account_generation
         self.load_local_btn.setEnabled(False)
@@ -1010,34 +1051,14 @@ class StreamApp(QMainWindow):
 
     def _find_local_token(self) -> str | None:
         """Blocking file scan — runs on a worker thread."""
-        if platform.system() == 'Windows':
-            path_pattern = os.path.expandvars(
-                r'%appdata%\slobs-client\Local Storage\leveldb\*.log'
-            )
-        elif platform.system() == 'Darwin':
-            path_pattern = os.path.expanduser(
-                '~/Library/Application Support/slobs-client/Local Storage/leveldb/*.log'
-            )
-        else:
-            QTimer.singleShot(0, lambda: QMessageBox.critical(
-                self, "Error", "Este sistema operativo no permite recuperar el token local."
-            ))
-            return None
-
-        files = sorted(glob.glob(path_pattern), key=os.path.getmtime, reverse=True)
-        token_pattern = re.compile(r'"apiToken":"([a-f0-9]+)"', re.IGNORECASE)
-
-        for file in files:
+        for file in local_token_files():
             try:
-                with open(file, 'rb') as f:
-                    content = f.read().decode('utf-8', errors='ignore')
-                content = re.sub(r'[\x00]', '', content)
-                matches = token_pattern.findall(content)
-                if matches:
-                    return matches[-1]
-            except Exception as e:
-                print(f"Error reading {file}: {e}")
-
+                token = token_from_file(file)
+            except OSError as error:
+                print(f"Error reading {file}: {error}")
+                continue
+            if token:
+                return token
         return None
 
     def fetch_online_token(self):

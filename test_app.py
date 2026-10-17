@@ -84,6 +84,14 @@ class AppTests(unittest.TestCase):
         self.assertIsInstance(scroll, QScrollArea)
         self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
 
+    def test_local_token_is_refused_on_unsupported_platforms(self):
+        with patch('StreamLabsTikTokStreamKeyGenerator.platform.system', return_value='Linux'), \
+             patch('StreamLabsTikTokStreamKeyGenerator.QMessageBox.critical') as critical, \
+             patch('StreamLabsTikTokStreamKeyGenerator.threading.Thread') as thread:
+            self.window.load_local_token()
+        critical.assert_called_once()
+        thread.assert_not_called()
+
     def test_token_is_queued_while_api_is_busy(self):
         self.window._api_busy = True
         self.window._apply_token("queued-token", success_message="Inicio de sesión completado.")
