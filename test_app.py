@@ -84,25 +84,25 @@ class AppTests(unittest.TestCase):
         self.window.cancel_online_login()
 
     def test_failed_browser_launch_returns_to_retry(self):
-        with patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl', return_value=False):
+        with patch('TokenRetriever.webbrowser.open', return_value=False):
             self.window.fetch_online_token()
             self.wait_for(lambda: self.window._online_retriever is None)
         self.assertTrue(self.window.load_online_btn.isEnabled())
         self.assertFalse(self.window.cancel_login_btn.isEnabled())
         self.assertIn('navegador', self.window.login_status.text())
 
-    def test_browser_opens_on_gui_thread_and_cancel_does_not_reopen(self):
-        from PySide6.QtCore import QThread
+    def test_original_browser_opens_off_gui_thread_and_cancel_does_not_reopen(self):
         calls = []
+        gui_thread = threading.get_ident()
         def opened(url):
-            calls.append(QThread.currentThread() == self.app.thread())
+            calls.append(threading.get_ident() != gui_thread)
             return True
-        with patch('StreamLabsTikTokStreamKeyGenerator.QDesktopServices.openUrl', side_effect=opened):
+        with patch('TokenRetriever.webbrowser.open', side_effect=opened):
             self.window.fetch_online_token()
             retriever = self.window._online_retriever
             self.wait_for(lambda: bool(calls))
             self.window.cancel_login_btn.click()
-            self.window._open_login_browser(retriever, 'https://example.invalid')
+            self.wait_for(lambda: retriever.cancelled.is_set())
         self.assertEqual(calls, [True])
         self.assertTrue(self.window.load_online_btn.isEnabled())
 

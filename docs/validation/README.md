@@ -10,7 +10,9 @@ confirmed end, account-change guards, pending-operation persistence, restart
 recovery, manual-close confirmation, safe error messages, category debounce and
 stale responses, and masked keys. No new dependencies or animations.
 
-Web login opens the default browser through Qt on the GUI thread. Cancel
+Web login uses upstream's `webbrowser.open` on the worker rather than the Qt
+launcher introduced in the previous fix. Compared against `origin/main` on
+2026-10-17 after the user reported the original version opens correctly. Cancel
 immediately restores retry and invalidates late responses; the worker releases
 the loopback callback server and never logs tokens, remote response bodies or
 credential-bearing network exceptions. Tests cover cancellation while waiting,

@@ -11,7 +11,7 @@ import tempfile
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QGroupBox, QPushButton, QLineEdit, QLabel, QCheckBox,
                               QListWidget, QMessageBox, QListWidgetItem, QSizePolicy)
-from PySide6.QtCore import Signal, QTimer, Qt, QUrl
+from PySide6.QtCore import Signal, QTimer, Qt
 from PySide6.QtGui import QDesktopServices
 from Stream import Stream
 from TokenRetriever import TokenRetriever
@@ -25,7 +25,6 @@ class StreamApp(QMainWindow):
     _token_error = Signal(str)
     _restore_local_btn = Signal()
     _online_done = Signal(object)
-    _login_browser_requested = Signal(object, str)
     _api_done = Signal(object)
     _search_done = Signal(object)
 
@@ -62,7 +61,6 @@ class StreamApp(QMainWindow):
         self._token_error.connect(lambda msg: QMessageBox.critical(self, "Error", msg))
         self._restore_local_btn.connect(self._do_restore_local_btn)
         self._online_done.connect(self._finish_online_token)
-        self._login_browser_requested.connect(self._open_login_browser)
         self._api_done.connect(self._finish_api)
         self._search_done.connect(self._finish_search)
         self.load_config()
@@ -623,17 +621,15 @@ class StreamApp(QMainWindow):
             return
         retriever = TokenRetriever()
         self._online_retriever = retriever
-        self.login_status.setText("Abriendo el navegador para iniciar sesión…")
+        self.login_status.setText("Completa el inicio de sesión en el navegador o pulsa Cancelar.")
         self._sync_controls()
-
-        def open_browser(url):
-            self._login_browser_requested.emit(retriever, url)
-            return True
 
         def _run():
             token = None
             try:
-                token = retriever.retrieve_token(browser_opener=open_browser)
+                # Match upstream: Python's default browser opener runs on the
+                # worker, keeping shell/browser launch off the GUI thread.
+                token = retriever.retrieve_token()
             except Exception:
                 retriever.last_error = "No se pudo iniciar la sesión web. Puedes reintentar."
             finally:
@@ -643,20 +639,6 @@ class StreamApp(QMainWindow):
                     pass
 
         threading.Thread(target=_run, daemon=True, name="streamlabs-web-login").start()
-
-    def _open_login_browser(self, retriever, url):
-        if retriever is not self._online_retriever or retriever.cancelled.is_set():
-            return
-        try:
-            opened = QDesktopServices.openUrl(QUrl(url))
-        except Exception:
-            opened = False
-        if not opened:
-            retriever.last_error = "No se pudo abrir el navegador predeterminado. Configúralo y vuelve a intentar."
-            retriever.cancel()
-            self._finish_online_token((retriever, None))
-        else:
-            self.login_status.setText("Completa el inicio de sesión en el navegador o pulsa Cancelar.")
 
     def cancel_online_login(self):
         retriever = self._online_retriever

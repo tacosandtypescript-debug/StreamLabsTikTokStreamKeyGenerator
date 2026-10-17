@@ -85,8 +85,9 @@ and manual recovery. They never create real TikTok sessions.
 ## Web-login recovery
 
 `TokenRetriever` owns one cancellable OAuth attempt and callback server.
-`fetch_online_token` and `_finish_online_token` own the GUI lifecycle; Qt opens
-the default browser on the GUI thread. The visible Cancel action restores retry
+`fetch_online_token` and `_finish_online_token` own the GUI lifecycle. As in
+upstream `origin/main`, `webbrowser.open` opens the default browser on the worker;
+browser launch never blocks the GUI. The visible Cancel action restores retry
 immediately, and attempt identity prevents an old completion replacing a new
 account. Cancellation never changes the current token. Pending login disables
 account edits and Go Live. Browser failure and timeout leave an actionable status.
