@@ -73,7 +73,8 @@ class TokenRetriever:
                     return
                 params = parse_qs(parsed.query)
 
-                if params.get("state", [""])[0] != retriever.state:
+                received_state = params.get("state", [""])[0]
+                if received_state and received_state != retriever.state:
                     body = b"<h2>La autenticaci\xc3\xb3n fall\xc3\xb3. Int\xc3\xa9ntalo de nuevo.</h2>"
                     self.send_response(400)
                     self.send_header("Content-Type", "text/html; charset=utf-8")

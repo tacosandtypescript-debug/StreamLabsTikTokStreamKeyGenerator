@@ -60,6 +60,22 @@ class TokenRetrieverTests(unittest.TestCase):
             exchange.assert_called_once()
         self.assertNotIn('synthetic-secret', captured.getvalue())
 
+    def test_callback_without_state_is_accepted(self):
+        retriever = TokenRetriever()
+        response = Mock(status_code=200)
+        response.json.return_value = {'success': True, 'data': {'oauth_token': 'synthetic-secret'}}
+        def callback(url):
+            port = parse_qs(urlsplit(url).query)['port'][0]
+            with requests.Session() as session:
+                callback_response = session.get(
+                    f'http://127.0.0.1:{port}/?success=true&code=test', timeout=2
+                )
+                self.assertEqual(callback_response.status_code, 200)
+                self.assertIn('Autenticación correcta', callback_response.content.decode('utf-8'))
+            return True
+        with patch('TokenRetriever.requests.get', return_value=response):
+            self.assertEqual(retriever.retrieve_token(browser_opener=callback), 'synthetic-secret')
+
     def test_callback_rejects_an_invalid_state(self):
         retriever = TokenRetriever()
         def callback(url):

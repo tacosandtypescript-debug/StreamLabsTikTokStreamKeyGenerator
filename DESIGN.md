@@ -109,7 +109,9 @@ or Firefox executable receive an explicit visible new-window request. Qt's
 GUI-thread URL handler is the final fallback. The OAuth URL is passed as one
 argument, without a command shell. The authorization request declares
 `code_challenge_method=S256` and carries a per-attempt `state`; the loopback
-callback rejects a missing or mismatched state before exchanging the code.
+callback rejects a mismatched state before exchanging the code. Streamlabs does
+not echo the state, so a callback without it is accepted; PKCE still protects the
+authorization code.
 The visible Cancel action restores retry immediately, and attempt identity prevents
 an old completion replacing a new account. Cancellation never changes the current
 token. Pending login disables account edits and preparing a transmission. Browser
